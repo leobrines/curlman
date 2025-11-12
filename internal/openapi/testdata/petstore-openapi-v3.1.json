@@ -1,0 +1,167 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Product Store API",
+    "description": "A simple API for managing products in an e-commerce store",
+    "version": "2.0.0",
+    "contact": {
+      "name": "API Support",
+      "email": "support@productstore.io"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.productstore.io/v1",
+      "description": "Production API"
+    }
+  ],
+  "paths": {
+    "/products": {
+      "get": {
+        "summary": "List all products",
+        "description": "Retrieve a list of all products in the store",
+        "operationId": "listProducts",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "description": "Filter products by category",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["electronics", "books", "clothing"],
+              "default": "electronics"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sort order",
+            "schema": {
+              "type": "string",
+              "example": "price-asc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new product",
+        "description": "Add a new product to the store inventory",
+        "operationId": "createProduct",
+        "requestBody": {
+          "description": "Product details",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "price"],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "price": {
+                    "type": "number"
+                  },
+                  "category": {
+                    "type": "string"
+                  }
+                }
+              },
+              "examples": {
+                "laptop": {
+                  "summary": "A laptop example",
+                  "value": {
+                    "name": "Gaming Laptop",
+                    "price": 1299.99,
+                    "category": "electronics",
+                    "inStock": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Product created"
+          }
+        }
+      }
+    },
+    "/products/{productId}": {
+      "get": {
+        "summary": "Get product by ID",
+        "description": "Retrieve detailed information about a specific product",
+        "operationId": "getProduct",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Product identifier",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "prod-12345"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Bearer token for authentication",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Product found"
+          },
+          "404": {
+            "description": "Product not found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update a product",
+        "description": "Update an existing product's information",
+        "operationId": "updateProduct",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "prod-67890"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Updated Product Name",
+                "price": 899.99
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Product updated"
+          }
+        }
+      }
+    }
+  }
+}

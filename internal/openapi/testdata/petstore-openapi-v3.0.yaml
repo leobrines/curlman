@@ -1,0 +1,157 @@
+openapi: 3.0.0
+info:
+  title: Swagger Petstore
+  description: A sample API that uses a petstore as an example to demonstrate features in the OpenAPI 3.0 specification
+  version: 1.0.0
+  contact:
+    name: Swagger API Team
+    email: apiteam@swagger.io
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: https://petstore.swagger.io/v2
+    description: Production server
+  - url: https://staging.petstore.swagger.io/v2
+    description: Staging server
+paths:
+  /pets:
+    get:
+      summary: List all pets
+      description: Returns all pets from the system that the user has access to
+      operationId: listPets
+      tags:
+        - pets
+      parameters:
+        - name: limit
+          in: query
+          description: How many items to return at one time (max 100)
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 20
+        - name: tags
+          in: query
+          description: Filter pets by tags
+          required: false
+          schema:
+            type: string
+            example: "friendly,small"
+      responses:
+        '200':
+          description: A list of pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pet'
+        '500':
+          description: Internal server error
+    post:
+      summary: Create a pet
+      description: Creates a new pet in the store
+      operationId: createPet
+      tags:
+        - pets
+      requestBody:
+        description: Pet to add to the store
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPet'
+            example:
+              name: "Fluffy"
+              tag: "cat"
+              age: 3
+      responses:
+        '201':
+          description: Pet created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '400':
+          description: Invalid input
+  /pets/{petId}:
+    get:
+      summary: Get a pet by ID
+      description: Returns a single pet by ID
+      operationId: getPetById
+      tags:
+        - pets
+      parameters:
+        - name: petId
+          in: path
+          description: ID of pet to fetch
+          required: true
+          schema:
+            type: integer
+            format: int64
+            example: 123
+        - name: X-Request-ID
+          in: header
+          description: Request tracking ID
+          required: false
+          schema:
+            type: string
+            example: "req-12345"
+      responses:
+        '200':
+          description: A single pet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '404':
+          description: Pet not found
+    delete:
+      summary: Delete a pet
+      description: Deletes a single pet by ID
+      operationId: deletePet
+      tags:
+        - pets
+      parameters:
+        - name: petId
+          in: path
+          description: ID of pet to delete
+          required: true
+          schema:
+            type: integer
+            format: int64
+            example: 456
+      responses:
+        '204':
+          description: Pet deleted successfully
+        '404':
+          description: Pet not found
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        tag:
+          type: string
+        age:
+          type: integer
+    NewPet:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        tag:
+          type: string
+        age:
+          type: integer
