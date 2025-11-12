@@ -1,13 +1,18 @@
 package openapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/getkin/kin-openapi/openapi2"
+	"github.com/getkin/kin-openapi/openapi2conv"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/leit0/curlman/internal/models"
-	"gopkg.in/yaml.v3"
 )
 
 // OpenAPIParser parses OpenAPI specification files
@@ -18,97 +23,144 @@ func NewOpenAPIParser() *OpenAPIParser {
 	return &OpenAPIParser{}
 }
 
-// OpenAPISpec represents a simplified OpenAPI specification
-type OpenAPISpec struct {
-	OpenAPI string                 `json:"openapi" yaml:"openapi"`
-	Info    map[string]interface{} `json:"info" yaml:"info"`
-	Servers []Server               `json:"servers" yaml:"servers"`
-	Paths   map[string]PathItem    `json:"paths" yaml:"paths"`
-}
-
-// Server represents an OpenAPI server
-type Server struct {
-	URL         string `json:"url" yaml:"url"`
-	Description string `json:"description" yaml:"description"`
-}
-
-// PathItem represents operations for a path
-type PathItem struct {
-	Get    *Operation `json:"get,omitempty" yaml:"get,omitempty"`
-	Post   *Operation `json:"post,omitempty" yaml:"post,omitempty"`
-	Put    *Operation `json:"put,omitempty" yaml:"put,omitempty"`
-	Delete *Operation `json:"delete,omitempty" yaml:"delete,omitempty"`
-	Patch  *Operation `json:"patch,omitempty" yaml:"patch,omitempty"`
-}
-
-// Operation represents an API operation
-type Operation struct {
-	Summary     string                 `json:"summary" yaml:"summary"`
-	Description string                 `json:"description" yaml:"description"`
-	OperationID string                 `json:"operationId" yaml:"operationId"`
-	Parameters  []Parameter            `json:"parameters" yaml:"parameters"`
-	RequestBody map[string]interface{} `json:"requestBody" yaml:"requestBody"`
-}
-
-// Parameter represents an operation parameter
-type Parameter struct {
-	Name        string `json:"name" yaml:"name"`
-	In          string `json:"in" yaml:"in"` // query, header, path, cookie
-	Required    bool   `json:"required" yaml:"required"`
-	Description string `json:"description" yaml:"description"`
-}
-
 // ParseFile parses an OpenAPI file and returns a collection (metadata only, no requests)
 func (p *OpenAPIParser) ParseFile(filePath string) (*models.Collection, error) {
-	spec, err := p.parseSpec(filePath)
+	doc, err := p.loadSpec(filePath)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create collection metadata only (no requests)
-	collection := p.createCollectionMetadata(spec, filePath)
+	collection := p.createCollectionMetadata(doc, filePath)
 	return collection, nil
 }
 
 // ParseFileToSpecRequests parses an OpenAPI file and returns spec requests (ephemeral, in-memory only)
 func (p *OpenAPIParser) ParseFileToSpecRequests(filePath string) ([]models.Request, error) {
-	spec, err := p.parseSpec(filePath)
+	doc, err := p.loadSpec(filePath)
 	if err != nil {
 		return nil, err
 	}
 
-	return p.generateSpecRequests(spec), nil
+	return p.generateSpecRequests(doc), nil
 }
 
-// parseSpec parses the OpenAPI specification file
-func (p *OpenAPIParser) parseSpec(filePath string) (*OpenAPISpec, error) {
+// loadSpec loads and parses an OpenAPI specification file
+// Handles OpenAPI 2.0 (Swagger) to 3.0 conversion automatically
+func (p *OpenAPIParser) loadSpec(filePath string) (*openapi3.T, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var spec OpenAPISpec
-
-	// Try JSON first, then YAML
-	if err := json.Unmarshal(data, &spec); err != nil {
-		if err := yaml.Unmarshal(data, &spec); err != nil {
-			return nil, fmt.Errorf("failed to parse OpenAPI file: %w", err)
-		}
+	// Check version to determine if it's Swagger 2.0 or OpenAPI 3.x
+	var versionCheck struct {
+		Swagger string `json:"swagger" yaml:"swagger"`
+		OpenAPI string `json:"openapi" yaml:"openapi"`
 	}
 
-	return &spec, nil
+	// Try JSON first
+	if err := json.Unmarshal(data, &versionCheck); err != nil {
+		// If JSON fails, the loader will handle YAML
+		versionCheck = struct {
+			Swagger string `json:"swagger" yaml:"swagger"`
+			OpenAPI string `json:"openapi" yaml:"openapi"`
+		}{}
+	}
+
+	// Check if this is Swagger 2.0
+	if versionCheck.Swagger != "" {
+		return p.convertSwaggerToOpenAPI3(filePath, data)
+	}
+
+	// Load as OpenAPI 3.x
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+
+	doc, err := loader.LoadFromFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse OpenAPI file: %w", err)
+	}
+
+	// Validate OpenAPI version
+	if doc.OpenAPI == "" {
+		return nil, fmt.Errorf("invalid OpenAPI specification: missing version")
+	}
+
+	// Check version >= 3.0
+	if !strings.HasPrefix(doc.OpenAPI, "3.") {
+		return nil, fmt.Errorf("unsupported OpenAPI version %s: only version 3.0 and above are supported", doc.OpenAPI)
+	}
+
+	// Validate the document
+	if err := doc.Validate(context.Background()); err != nil {
+		return nil, fmt.Errorf("invalid OpenAPI specification: %w", err)
+	}
+
+	return doc, nil
+}
+
+// convertSwaggerToOpenAPI3 converts an OpenAPI 2.0 (Swagger) file to OpenAPI 3.0
+// and saves it to a temporary file, then loads it
+func (p *OpenAPIParser) convertSwaggerToOpenAPI3(originalPath string, data []byte) (*openapi3.T, error) {
+	// Parse as Swagger 2.0 using ReadFromURIFunc
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+
+	// Parse the Swagger 2.0 document
+	var swagger2 openapi2.T
+	if err := json.Unmarshal(data, &swagger2); err != nil {
+		return nil, fmt.Errorf("failed to parse Swagger 2.0 file as JSON: %w", err)
+	}
+
+	// Convert to OpenAPI 3.0
+	doc, err := openapi2conv.ToV3(&swagger2)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Swagger 2.0 to OpenAPI 3.0: %w", err)
+	}
+
+	// Create a temporary file for the converted spec
+	tmpDir := os.TempDir()
+	baseName := filepath.Base(originalPath)
+	nameWithoutExt := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+
+	tmpFile, err := os.CreateTemp(tmpDir, fmt.Sprintf("curlman-openapi3-%s-*.json", nameWithoutExt))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	// Marshal the converted spec to JSON
+	convertedData, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal converted OpenAPI 3.0 spec: %w", err)
+	}
+
+	// Write to temporary file
+	if _, err := tmpFile.Write(convertedData); err != nil {
+		return nil, fmt.Errorf("failed to write converted spec to temporary file: %w", err)
+	}
+
+	// Validate the converted document
+	if err := doc.Validate(context.Background()); err != nil {
+		return nil, fmt.Errorf("converted OpenAPI 3.0 specification is invalid: %w", err)
+	}
+
+	return doc, nil
 }
 
 // createCollectionMetadata creates collection metadata without requests
-func (p *OpenAPIParser) createCollectionMetadata(spec *OpenAPISpec, filePath string) *models.Collection {
+func (p *OpenAPIParser) createCollectionMetadata(doc *openapi3.T, filePath string) *models.Collection {
 	name := "OpenAPI Collection"
 	description := ""
 
-	if info, ok := spec.Info["title"].(string); ok {
-		name = info
-	}
-	if desc, ok := spec.Info["description"].(string); ok {
-		description = desc
+	if doc.Info != nil {
+		if doc.Info.Title != "" {
+			name = doc.Info.Title
+		}
+		if doc.Info.Description != "" {
+			description = doc.Info.Description
+		}
 	}
 
 	coll := models.NewCollection(name, description)
@@ -118,18 +170,18 @@ func (p *OpenAPIParser) createCollectionMetadata(spec *OpenAPISpec, filePath str
 }
 
 // generateSpecRequests generates spec requests from OpenAPI spec
-func (p *OpenAPIParser) generateSpecRequests(spec *OpenAPISpec) []models.Request {
+func (p *OpenAPIParser) generateSpecRequests(doc *openapi3.T) []models.Request {
 	var requests []models.Request
 
 	// Get base URL from servers
 	baseURL := ""
-	if len(spec.Servers) > 0 {
-		baseURL = spec.Servers[0].URL
+	if len(doc.Servers) > 0 {
+		baseURL = doc.Servers[0].URL
 	}
 
 	// Convert paths to spec requests
-	for path, pathItem := range spec.Paths {
-		reqs := p.createSpecRequestsFromPath(baseURL, path, &pathItem)
+	for path, pathItem := range doc.Paths.Map() {
+		reqs := p.createSpecRequestsFromPath(baseURL, path, pathItem)
 		requests = append(requests, reqs...)
 	}
 
@@ -137,8 +189,8 @@ func (p *OpenAPIParser) generateSpecRequests(spec *OpenAPISpec) []models.Request
 }
 
 // createSpecRequestsFromPath creates spec requests from a path item
-func (p *OpenAPIParser) createSpecRequestsFromPath(baseURL, path string, pathItem *PathItem) []models.Request {
-	operations := map[string]*Operation{
+func (p *OpenAPIParser) createSpecRequestsFromPath(baseURL, path string, pathItem *openapi3.PathItem) []models.Request {
+	operations := map[string]*openapi3.Operation{
 		"GET":    pathItem.Get,
 		"POST":   pathItem.Post,
 		"PUT":    pathItem.Put,
@@ -154,7 +206,7 @@ func (p *OpenAPIParser) createSpecRequestsFromPath(baseURL, path string, pathIte
 		}
 
 		// Build curl command
-		curlCmd := p.buildCurlCommand(method, baseURL+path, op)
+		curlCmd := p.buildCurlCommand(method, baseURL+path, op, pathItem)
 
 		// Create spec request (not managed)
 		requestName := op.Summary
@@ -178,9 +230,167 @@ func (p *OpenAPIParser) createSpecRequestsFromPath(baseURL, path string, pathIte
 	return requests
 }
 
+// buildCurlCommand builds a curl command from operation details
+// Uses examples and defaults from the OpenAPI specification
+func (p *OpenAPIParser) buildCurlCommand(method, urlStr string, op *openapi3.Operation, pathItem *openapi3.PathItem) string {
+	var parts []string
+	parts = append(parts, "curl")
+
+	// Add method if not GET
+	if method != "GET" {
+		parts = append(parts, fmt.Sprintf("-X %s", method))
+	}
+
+	// Combine parameters from both path and operation level
+	allParams := make([]*openapi3.ParameterRef, 0)
+	if pathItem.Parameters != nil {
+		allParams = append(allParams, pathItem.Parameters...)
+	}
+	if op.Parameters != nil {
+		allParams = append(allParams, op.Parameters...)
+	}
+
+	// Build URL with path and query parameters
+	finalURL := urlStr
+	queryParams := url.Values{}
+
+	for _, paramRef := range allParams {
+		if paramRef.Value == nil {
+			continue
+		}
+		param := paramRef.Value
+		value := p.extractParameterValue(param)
+
+		switch param.In {
+		case "path":
+			// Replace path parameter placeholder
+			placeholder := fmt.Sprintf("{%s}", param.Name)
+			finalURL = strings.ReplaceAll(finalURL, placeholder, value)
+		case "query":
+			// Add query parameter
+			queryParams.Add(param.Name, value)
+		}
+	}
+
+	// Add query parameters to URL
+	if len(queryParams) > 0 {
+		if strings.Contains(finalURL, "?") {
+			finalURL += "&" + queryParams.Encode()
+		} else {
+			finalURL += "?" + queryParams.Encode()
+		}
+	}
+
+	parts = append(parts, fmt.Sprintf(`"%s"`, finalURL))
+
+	// Add headers
+	for _, paramRef := range allParams {
+		if paramRef.Value == nil {
+			continue
+		}
+		param := paramRef.Value
+		if param.In == "header" {
+			value := p.extractParameterValue(param)
+			parts = append(parts, fmt.Sprintf(`-H "%s: %s"`, param.Name, value))
+		}
+	}
+
+	// Add request body if present
+	if op.RequestBody != nil && op.RequestBody.Value != nil {
+		bodyContent := p.extractRequestBody(op.RequestBody.Value)
+		if bodyContent != "" {
+			parts = append(parts, `-H "Content-Type: application/json"`)
+			parts = append(parts, fmt.Sprintf(`-d '%s'`, bodyContent))
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// extractParameterValue extracts a value for a parameter
+// Priority: Example > Schema.Default > Type-based placeholder
+func (p *OpenAPIParser) extractParameterValue(param *openapi3.Parameter) string {
+	// Check for example value first
+	if param.Example != nil {
+		return fmt.Sprintf("%v", param.Example)
+	}
+
+	// Check schema for default or example
+	if param.Schema != nil && param.Schema.Value != nil {
+		schema := param.Schema.Value
+
+		// Check schema example
+		if schema.Example != nil {
+			return fmt.Sprintf("%v", schema.Example)
+		}
+
+		// Check schema default
+		if schema.Default != nil {
+			return fmt.Sprintf("%v", schema.Default)
+		}
+
+		// Generate placeholder based on type
+		switch schema.Type.Slice()[0] {
+		case "string":
+			if len(schema.Enum) > 0 {
+				return fmt.Sprintf("%v", schema.Enum[0])
+			}
+			return fmt.Sprintf("{%s}", param.Name)
+		case "integer", "number":
+			return "0"
+		case "boolean":
+			return "false"
+		}
+	}
+
+	// Fallback to placeholder
+	return fmt.Sprintf("{%s}", param.Name)
+}
+
+// extractRequestBody extracts a request body from examples
+// Returns JSON string or empty string if no examples found
+func (p *OpenAPIParser) extractRequestBody(requestBody *openapi3.RequestBody) string {
+	// Check for application/json content
+	if content, ok := requestBody.Content["application/json"]; ok && content != nil {
+		// Check for example
+		if content.Example != nil {
+			data, err := json.Marshal(content.Example)
+			if err == nil {
+				return string(data)
+			}
+		}
+
+		// Check for examples (map)
+		if len(content.Examples) > 0 {
+			// Get the first example
+			for _, exampleRef := range content.Examples {
+				if exampleRef.Value != nil && exampleRef.Value.Value != nil {
+					data, err := json.Marshal(exampleRef.Value.Value)
+					if err == nil {
+						return string(data)
+					}
+				}
+			}
+		}
+
+		// Check schema for example
+		if content.Schema != nil && content.Schema.Value != nil {
+			schema := content.Schema.Value
+			if schema.Example != nil {
+				data, err := json.Marshal(schema.Example)
+				if err == nil {
+					return string(data)
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
 // ValidateOperation checks if an operation exists in the OpenAPI spec
 func (p *OpenAPIParser) ValidateOperation(filePath, operation string) (bool, error) {
-	spec, err := p.parseSpec(filePath)
+	doc, err := p.loadSpec(filePath)
 	if err != nil {
 		return false, err
 	}
@@ -191,57 +401,28 @@ func (p *OpenAPIParser) ValidateOperation(filePath, operation string) (bool, err
 		return false, nil
 	}
 
-	method := parts[0]
+	method := strings.ToLower(parts[0])
 	path := parts[1]
 
 	// Check if path exists
-	pathItem, exists := spec.Paths[path]
-	if !exists {
+	pathItem := doc.Paths.Find(path)
+	if pathItem == nil {
 		return false, nil
 	}
 
 	// Check if method exists for this path
-	switch strings.ToUpper(method) {
-	case "GET":
+	switch method {
+	case "get":
 		return pathItem.Get != nil, nil
-	case "POST":
+	case "post":
 		return pathItem.Post != nil, nil
-	case "PUT":
+	case "put":
 		return pathItem.Put != nil, nil
-	case "DELETE":
+	case "delete":
 		return pathItem.Delete != nil, nil
-	case "PATCH":
+	case "patch":
 		return pathItem.Patch != nil, nil
 	default:
 		return false, nil
 	}
-}
-
-// buildCurlCommand builds a curl command from operation details
-func (p *OpenAPIParser) buildCurlCommand(method, url string, op *Operation) string {
-	var parts []string
-	parts = append(parts, "curl")
-
-	// Add method if not GET
-	if method != "GET" {
-		parts = append(parts, fmt.Sprintf("-X %s", method))
-	}
-
-	// Add URL
-	parts = append(parts, fmt.Sprintf(`"%s"`, url))
-
-	// Add headers for parameters
-	for _, param := range op.Parameters {
-		if param.In == "header" {
-			parts = append(parts, fmt.Sprintf(`-H "%s: {{.%s}}"`, param.Name, param.Name))
-		}
-	}
-
-	// Add content-type header if request body exists
-	if op.RequestBody != nil {
-		parts = append(parts, `-H "Content-Type: application/json"`)
-		parts = append(parts, `-d '{{.RequestBody}}'`)
-	}
-
-	return strings.Join(parts, " ")
 }
