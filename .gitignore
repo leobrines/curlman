@@ -1,0 +1,53 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Build directory
+bin/
+build/
+dist/
+
+# Dependency directories
+vendor/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Air live reload
+tmp/
+
+# Test data
+*.db
+*.sqlite
+
+# Local .curlman directory (for testing)
+.curlman/
+
+# Log files
+*.log
+
+# Environment files (sensitive data)
+.env
+.env.local
+*.pem
+*.key
+
+# OS specific
+Thumbs.db
