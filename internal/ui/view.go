@@ -90,117 +90,53 @@ func (m *Model) renderMainView() string {
 }
 
 func (m *Model) renderEnvironmentsPanel(width int) string {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("Environments"))
-	b.WriteString("\n\n")
-
 	if len(m.environments) == 0 {
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Environments"))
+		b.WriteString("\n\n")
 		b.WriteString("No environments\n")
 		b.WriteString(helpStyle.Render("Press 'a' to add"))
-	} else {
-		for i, env := range m.environments {
-			prefix := "  "
-			style := lipgloss.NewStyle()
-
-			if m.selectedEnv != nil && env.ID == m.selectedEnv.ID {
-				prefix = "▶ "
-				style = selectedStyle
-			}
-
-			line := fmt.Sprintf("%s%s", prefix, env.Name)
-			if i == 0 && m.currentPanel == PanelEnvironments {
-				line = style.Render(line)
-			}
-			b.WriteString(line + "\n")
-
-			// Show variables count
-			if len(env.Variables) > 0 {
-				b.WriteString(helpStyle.Render(fmt.Sprintf("    %d variables", len(env.Variables))))
-				b.WriteString("\n")
-			}
-		}
+		return b.String()
 	}
 
-	return b.String()
+	// Use Bubble Tea list's built-in View() method
+	return m.envList.View()
 }
 
 func (m *Model) renderCollectionsPanel(width int) string {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("Collections"))
-	b.WriteString("\n\n")
-
 	if len(m.collections) == 0 {
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Collections"))
+		b.WriteString("\n\n")
 		b.WriteString("No collections\n")
 		b.WriteString(helpStyle.Render("Press 'a' to add"))
-	} else {
-		for i, coll := range m.collections {
-			prefix := "  "
-			style := lipgloss.NewStyle()
-
-			if m.selectedColl != nil && coll.ID == m.selectedColl.ID {
-				prefix = "▶ "
-				style = selectedStyle
-			}
-
-			line := fmt.Sprintf("%s%s", prefix, coll.Name)
-			if i == 0 && m.currentPanel == PanelCollections {
-				line = style.Render(line)
-			}
-			b.WriteString(line + "\n")
-
-			// Show request count
-			if len(coll.Requests) > 0 {
-				b.WriteString(helpStyle.Render(fmt.Sprintf("    %d requests", len(coll.Requests))))
-				b.WriteString("\n")
-			}
-		}
+		return b.String()
 	}
 
-	return b.String()
+	// Use Bubble Tea list's built-in View() method
+	return m.collList.View()
 }
 
 func (m *Model) renderRequestsPanel(width int) string {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("Requests"))
-	b.WriteString("\n\n")
-
 	if m.selectedColl == nil {
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Requests"))
+		b.WriteString("\n\n")
 		b.WriteString(helpStyle.Render("Select a collection"))
-	} else if len(m.getAllRequests()) == 0 {
-		b.WriteString("No requests\n")
-		b.WriteString(helpStyle.Render("Press 'a' to add"))
-	} else {
-		for i, req := range m.getAllRequests() {
-			prefix := "  "
-			style := lipgloss.NewStyle()
-
-			if i == 0 && m.currentPanel == PanelRequests {
-				prefix = "▶ "
-				style = selectedStyle
-			}
-
-			line := fmt.Sprintf("%s%s %s", prefix, req.Method, req.Name)
-			if i == 0 && m.currentPanel == PanelRequests {
-				line = style.Render(line)
-			}
-			b.WriteString(line + "\n")
-
-			// Show URL (truncated)
-			if req.URL != "" {
-				url := req.URL
-				if len(url) > width-6 {
-					url = url[:width-9] + "..."
-				}
-				b.WriteString(helpStyle.Render(fmt.Sprintf("    %s", url)))
-				b.WriteString("\n")
-			}
-		}
+		return b.String()
 	}
 
-	return b.String()
+	if len(m.getAllRequests()) == 0 {
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Requests"))
+		b.WriteString("\n\n")
+		b.WriteString("No requests\n")
+		b.WriteString(helpStyle.Render("Press 'a' to add"))
+		return b.String()
+	}
+
+	// Use Bubble Tea list's built-in View() method
+	return m.reqList.View()
 }
 
 func (m *Model) renderExecutionView() string {

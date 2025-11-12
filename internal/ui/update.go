@@ -35,9 +35,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Update list sizes
-		listWidth := msg.Width / 3
-		listHeight := msg.Height - 10
+		// Update list sizes - account for borders (2 chars) and padding (4 chars) = 6 total width reduction
+		// and borders (2 lines) and padding (2 lines) = 4 total height reduction
+		panelWidth := (msg.Width - 6) / 3
+		if panelWidth < 20 {
+			panelWidth = 20
+		}
+		listWidth := panelWidth - 6   // Account for border (2) + padding (4)
+		listHeight := msg.Height - 14 // Account for help text (~4 lines) + border (2) + padding (2) + margin (6)
+		if listWidth < 10 {
+			listWidth = 10
+		}
+		if listHeight < 5 {
+			listHeight = 5
+		}
 		m.envList.SetSize(listWidth, listHeight)
 		m.collList.SetSize(listWidth, listHeight)
 		m.reqList.SetSize(listWidth, listHeight)
