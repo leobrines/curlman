@@ -1,13 +1,11 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +24,34 @@ func openEditor(filePath string, editType string) tea.Cmd {
 	c := exec.Command(editor, filePath) //nolint:gosec
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err, filePath: filePath, editType: editType}
+	})
+}
+
+// executeCurl executes a curl command using tea.ExecProcess for proper terminal handling
+func executeCurl(req *models.Request, env *models.Environment) tea.Cmd {
+	exec := executor.NewExecutor()
+
+	// Prepare the command
+	curlCmd, cmd, err := exec.PrepareCommand(req, env)
+	if err != nil {
+		return func() tea.Msg {
+			return curlFinishedMsg{
+				err:         err,
+				curlCmd:     req.CurlCommand,
+				output:      "",
+				requestName: req.Name,
+			}
+		}
+	}
+
+	// Execute using tea.ExecProcess for proper terminal handling
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return curlFinishedMsg{
+			err:         err,
+			curlCmd:     curlCmd,
+			output:      "",
+			requestName: req.Name,
+		}
 	})
 }
 
@@ -107,6 +133,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case executionCompleteMsg:
 		m.executionOutput = msg.output
 		m.executing = false
+		return m, tea.Batch(cmds...)
+
+	case curlFinishedMsg:
+		m.executing = false
+		if msg.err != nil {
+			// Format error output
+			m.executionOutput = fmt.Sprintf("Request: %s %s\n\n", m.selectedReq.Method, msg.requestName)
+			m.executionOutput += "--- Response ---\n"
+			m.executionOutput += fmt.Sprintf("Command: %s\n\n", msg.curlCmd)
+			m.executionOutput += fmt.Sprintf("Error: %v\n", msg.err)
+		} else {
+			// Format success output
+			m.executionOutput = fmt.Sprintf("Request: %s %s\n\n", m.selectedReq.Method, msg.requestName)
+			m.executionOutput += "--- Response ---\n"
+			m.executionOutput += fmt.Sprintf("Command: %s\n\n", msg.curlCmd)
+			m.executionOutput += "[Request completed successfully]\n"
+			m.executionOutput += "\nNote: Output is displayed in the terminal above."
+		}
 		return m, tea.Batch(cmds...)
 
 	case editorFinishedMsg:
@@ -1023,25 +1067,8 @@ func (m *Model) doExecuteRequest() tea.Cmd {
 	req := *m.selectedReq
 	env := m.selectedEnv
 
-	return func() tea.Msg {
-		// Create executor and execute the request
-		exec := executor.NewExecutor()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		result, err := exec.ExecuteRequest(ctx, &req, env)
-		if err != nil {
-			return errMsg{fmt.Errorf("execution failed: %w", err)}
-		}
-
-		// Format output
-		output := fmt.Sprintf("Request: %s %s\n\n", req.Method, req.Name)
-		output += "--- Response ---\n"
-		output += result
-
-		return executionCompleteMsg{output: output}
-	}
+	// Use tea.ExecProcess for proper terminal handling
+	return executeCurl(&req, env)
 }
 
 func (m *Model) selectEnvironmentByID(id string) {

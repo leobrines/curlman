@@ -227,3 +227,9 @@ type editorFinishedMsg struct {
 	filePath string
 	editType string // "curl" or "request"
 }
+type curlFinishedMsg struct {
+	err        error
+	curlCmd    string
+	output     string
+	requestName string
+}

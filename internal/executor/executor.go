@@ -24,14 +24,15 @@ func NewExecutor() *Executor {
 	}
 }
 
-// ExecuteRequest executes a request with the given environment
-func (e *Executor) ExecuteRequest(ctx context.Context, req *models.Request, env *models.Environment) (string, error) {
+// PrepareCommand prepares a command for execution with the given environment
+// Returns the processed curl command string and the exec.Cmd ready for execution
+func (e *Executor) PrepareCommand(req *models.Request, env *models.Environment) (string, *exec.Cmd, error) {
 	// Process template with environment variables
 	curlCmd := req.CurlCommand
 	if env != nil {
 		processedCmd, err := e.templateEngine.ProcessRequest(req, env)
 		if err != nil {
-			return "", fmt.Errorf("template processing failed: %w", err)
+			return "", nil, fmt.Errorf("template processing failed: %w", err)
 		}
 		curlCmd = processedCmd
 	}
@@ -39,11 +40,30 @@ func (e *Executor) ExecuteRequest(ctx context.Context, req *models.Request, env 
 	// Parse curl command into shell command
 	cmdParts := parseCurlCommand(curlCmd)
 	if len(cmdParts) == 0 {
-		return "", fmt.Errorf("invalid curl command")
+		return "", nil, fmt.Errorf("invalid curl command")
 	}
 
-	// Create command with context for cancellation
-	cmd := exec.CommandContext(ctx, cmdParts[0], cmdParts[1:]...)
+	// Create command without context (will be managed by tea.ExecProcess)
+	cmd := exec.Command(cmdParts[0], cmdParts[1:]...) //nolint:gosec
+
+	return curlCmd, cmd, nil
+}
+
+// ExecuteRequest executes a request with the given environment
+// DEPRECATED: This method is kept for backward compatibility but should not be used
+// for interactive execution. Use PrepareCommand with tea.ExecProcess instead.
+func (e *Executor) ExecuteRequest(ctx context.Context, req *models.Request, env *models.Environment) (string, error) {
+	curlCmd, cmd, err := e.PrepareCommand(req, env)
+	if err != nil {
+		return "", err
+	}
+
+	// Add context for cancellation
+	if ctx != nil {
+		cmd.Cancel = func() error {
+			return cmd.Process.Kill()
+		}
+	}
 
 	// Capture output
 	var stdout, stderr bytes.Buffer
@@ -52,7 +72,7 @@ func (e *Executor) ExecuteRequest(ctx context.Context, req *models.Request, env 
 
 	// Execute command
 	startTime := time.Now()
-	err := cmd.Run()
+	err = cmd.Run()
 	duration := time.Since(startTime)
 
 	// Build output
@@ -73,7 +93,7 @@ func (e *Executor) ExecuteRequest(ctx context.Context, req *models.Request, env 
 	}
 
 	if err != nil {
-		if ctx.Err() == context.Canceled {
+		if ctx != nil && ctx.Err() == context.Canceled {
 			output.WriteString("\n[Request cancelled by user]")
 			return output.String(), nil
 		}
