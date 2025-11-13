@@ -21,6 +21,14 @@ const (
 	PanelRequests
 )
 
+// DetailPanel represents which panel is focused in the detail view
+type DetailPanel int
+
+const (
+	DetailPanelSpec DetailPanel = iota // Left panel - spec request details
+	DetailPanelManaged                 // Right panel - managed requests list
+)
+
 // ViewMode represents the current view mode
 type ViewMode int
 
@@ -30,6 +38,9 @@ const (
 	ViewModeEditing
 	ViewModeInput
 	ViewModeConfirm
+	ViewModeRequestDetail  // Request detail view with split layout (spec + managed list)
+	ViewModeCurlActions    // Curl edit/execute/copy/save view
+	ViewModeRequestExpanded // Full view for truncated content
 )
 
 // Model represents the main application model
@@ -66,6 +77,18 @@ type Model struct {
 	inputPrompt    string
 	confirmPrompt  string
 	confirmAction  func(*Model) tea.Cmd
+
+	// Request detail view state
+	detailActionIndex  int              // Currently selected action in menu (deprecated - only Generate now)
+	detailRelatedIndex int              // Selected related request in right panel
+	detailFocusPanel   DetailPanel      // Which panel is focused (spec or managed list)
+	expandedSection    string           // Which section is expanded ("body", "headers")
+	relatedRequests    []models.Request // Filtered related requests (managed requests for this spec)
+
+	// CurlActions view state
+	curlActionIndex   int             // Selected action (0=Edit, 1=Execute, 2=Copy, 3=Save)
+	curlActionSource  *models.Request // Source request (spec or managed)
+	curlActionCommand string          // Current curl command being viewed/edited
 
 	// UI state
 	width      int
@@ -199,4 +222,8 @@ type loadOpenAPISpecMsg struct{ openAPIPath string }
 type specRequestsLoadedMsg struct{ specReqs []models.Request }
 type executionCompleteMsg struct{ output string }
 type executionStartedMsg struct{}
-type editorClosedMsg struct{ err error }
+type editorFinishedMsg struct {
+	err      error
+	filePath string
+	editType string // "curl" or "request"
+}
