@@ -89,6 +89,7 @@ type Model struct {
 	curlActionIndex   int             // Selected action (0=Edit, 1=Execute, 2=Copy, 3=Save)
 	curlActionSource  *models.Request // Source request (spec or managed)
 	curlActionCommand string          // Current curl command being viewed/edited
+	specDetailExpanded map[string]bool // Tracks expanded/collapsed state of spec detail sections
 
 	// UI state
 	width      int
@@ -126,16 +127,17 @@ func NewModel(store *storage.Storage, appConfig *config.AppConfig) *Model {
 	ti.Width = 80
 
 	m := &Model{
-		storage:      store,
-		config:       appConfig,
-		currentPanel: PanelEnvironments,
-		viewMode:     ViewModeList,
-		ctrlCCount:   0,
-		envList:      envList,
-		collList:     collList,
-		reqList:      reqList,
-		spinner:      s,
-		textInput:    ti,
+		storage:            store,
+		config:             appConfig,
+		currentPanel:       PanelEnvironments,
+		viewMode:           ViewModeList,
+		ctrlCCount:         0,
+		envList:            envList,
+		collList:           collList,
+		reqList:            reqList,
+		spinner:            s,
+		textInput:          ti,
+		specDetailExpanded: make(map[string]bool),
 	}
 
 	return m

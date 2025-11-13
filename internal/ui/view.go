@@ -243,10 +243,20 @@ func (m *Model) renderHelp() string {
 			"ESC: Back",
 		}
 	case ViewModeCurlActions:
-		helps = []string{
-			"Enter: Execute action",
-			"←/→: Navigate actions",
-			"ESC: Back",
+		if m.curlActionSource != nil && !m.curlActionSource.IsManaged {
+			helps = []string{
+				"Enter: Execute action",
+				"←/→: Navigate actions",
+				"Space/Tab: Toggle sections",
+				"1-4: Toggle specific section",
+				"ESC: Back",
+			}
+		} else {
+			helps = []string{
+				"Enter: Execute action",
+				"←/→: Navigate actions",
+				"ESC: Back",
+			}
 		}
 	case ViewModeRequestExpanded:
 		helps = []string{
@@ -405,6 +415,240 @@ func (m *Model) renderManagedListPanel(width int) string {
 	return b.String()
 }
 
+// renderSpecDetailsSection renders collapsible spec details sections
+func (m *Model) renderSpecDetailsSection() string {
+	if m.curlActionSource == nil {
+		return ""
+	}
+
+	req := m.curlActionSource
+	var b strings.Builder
+
+	b.WriteString(selectedStyle.Render("API Specification Details"))
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("Press Space/Tab to cycle sections, or 1-4 to toggle specific sections"))
+	b.WriteString("\n\n")
+
+	// Section 1: Description & Tags
+	hasDescription := req.Description != "" || len(req.Tags) > 0 || req.Deprecated
+	if hasDescription {
+		expanded := m.specDetailExpanded["description"]
+		chevron := "▶"
+		if expanded {
+			chevron = "▼"
+		}
+		b.WriteString(fmt.Sprintf("%s [1] Description & Tags\n", chevron))
+
+		if expanded {
+			if req.Deprecated {
+				b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("202")).Render("  ⚠ DEPRECATED"))
+				b.WriteString("\n")
+			}
+			if req.Description != "" {
+				b.WriteString("  ")
+				b.WriteString(req.Description)
+				b.WriteString("\n")
+			}
+			if len(req.Tags) > 0 {
+				b.WriteString("  Tags: ")
+				b.WriteString(strings.Join(req.Tags, ", "))
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// Section 2: Parameters
+	if len(req.Parameters) > 0 {
+		expanded := m.specDetailExpanded["parameters"]
+		chevron := "▶"
+		if expanded {
+			chevron = "▼"
+		}
+		b.WriteString(fmt.Sprintf("%s [2] Parameters (%d)\n", chevron, len(req.Parameters)))
+
+		if expanded {
+			// Group by type
+			pathParams := []models.ParameterDetail{}
+			queryParams := []models.ParameterDetail{}
+			headerParams := []models.ParameterDetail{}
+
+			for _, p := range req.Parameters {
+				switch p.In {
+				case "path":
+					pathParams = append(pathParams, p)
+				case "query":
+					queryParams = append(queryParams, p)
+				case "header":
+					headerParams = append(headerParams, p)
+				}
+			}
+
+			if len(pathParams) > 0 {
+				b.WriteString("  Path:\n")
+				for _, p := range pathParams {
+					b.WriteString(fmt.Sprintf("    • %s", p.Name))
+					if p.Required {
+						b.WriteString(" (required)")
+					}
+					if p.Type != "" {
+						b.WriteString(fmt.Sprintf(" [%s]", p.Type))
+					}
+					if p.Description != "" {
+						b.WriteString(fmt.Sprintf(" - %s", p.Description))
+					}
+					if p.Example != "" {
+						b.WriteString(fmt.Sprintf(" (ex: %s)", p.Example))
+					}
+					b.WriteString("\n")
+				}
+			}
+
+			if len(queryParams) > 0 {
+				b.WriteString("  Query:\n")
+				for _, p := range queryParams {
+					b.WriteString(fmt.Sprintf("    • %s", p.Name))
+					if p.Required {
+						b.WriteString(" (required)")
+					}
+					if p.Type != "" {
+						b.WriteString(fmt.Sprintf(" [%s]", p.Type))
+					}
+					if p.Description != "" {
+						b.WriteString(fmt.Sprintf(" - %s", p.Description))
+					}
+					if p.Default != "" {
+						b.WriteString(fmt.Sprintf(" (default: %s)", p.Default))
+					}
+					b.WriteString("\n")
+				}
+			}
+
+			if len(headerParams) > 0 {
+				b.WriteString("  Headers:\n")
+				for _, p := range headerParams {
+					b.WriteString(fmt.Sprintf("    • %s", p.Name))
+					if p.Required {
+						b.WriteString(" (required)")
+					}
+					if p.Description != "" {
+						b.WriteString(fmt.Sprintf(" - %s", p.Description))
+					}
+					b.WriteString("\n")
+				}
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// Section 3: Request & Response Schemas
+	hasSchemas := req.RequestBodySchema != nil || len(req.Responses) > 0
+	if hasSchemas {
+		expanded := m.specDetailExpanded["schemas"]
+		chevron := "▶"
+		if expanded {
+			chevron = "▼"
+		}
+		b.WriteString(fmt.Sprintf("%s [3] Request & Response Schemas\n", chevron))
+
+		if expanded {
+			if req.RequestBodySchema != nil {
+				b.WriteString("  Request Body:\n")
+				if req.RequestBodySchema.Required {
+					b.WriteString("    (required) ")
+				}
+				if req.RequestBodySchema.ContentType != "" {
+					b.WriteString(fmt.Sprintf("[%s] ", req.RequestBodySchema.ContentType))
+				}
+				if req.RequestBodySchema.Schema != "" {
+					b.WriteString(req.RequestBodySchema.Schema)
+				}
+				if req.RequestBodySchema.Description != "" {
+					b.WriteString(fmt.Sprintf(" - %s", req.RequestBodySchema.Description))
+				}
+				b.WriteString("\n")
+			}
+
+			if len(req.Responses) > 0 {
+				b.WriteString("  Responses:\n")
+				// Common status codes order
+				statusOrder := []string{"200", "201", "204", "400", "401", "403", "404", "500"}
+				for _, status := range statusOrder {
+					if resp, ok := req.Responses[status]; ok {
+						b.WriteString(fmt.Sprintf("    • %s: ", status))
+						if resp.Description != "" {
+							b.WriteString(resp.Description)
+						}
+						if resp.ContentType != "" && resp.Schema != "" {
+							b.WriteString(fmt.Sprintf(" [%s: %s]", resp.ContentType, resp.Schema))
+						}
+						b.WriteString("\n")
+					}
+				}
+				// Show any remaining status codes not in our order
+				for status, resp := range req.Responses {
+					found := false
+					for _, s := range statusOrder {
+						if s == status {
+							found = true
+							break
+						}
+					}
+					if !found {
+						b.WriteString(fmt.Sprintf("    • %s: ", status))
+						if resp.Description != "" {
+							b.WriteString(resp.Description)
+						}
+						if resp.ContentType != "" && resp.Schema != "" {
+							b.WriteString(fmt.Sprintf(" [%s: %s]", resp.ContentType, resp.Schema))
+						}
+						b.WriteString("\n")
+					}
+				}
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// Section 4: Security
+	if len(req.Security) > 0 {
+		expanded := m.specDetailExpanded["security"]
+		chevron := "▶"
+		if expanded {
+			chevron = "▼"
+		}
+		b.WriteString(fmt.Sprintf("%s [4] Security Requirements\n", chevron))
+
+		if expanded {
+			for _, sec := range req.Security {
+				b.WriteString(fmt.Sprintf("  • %s", sec.Name))
+				if sec.Type != "" {
+					b.WriteString(fmt.Sprintf(" (%s)", sec.Type))
+				}
+				if sec.Scheme != "" {
+					b.WriteString(fmt.Sprintf(" - %s", sec.Scheme))
+				}
+				if sec.In != "" {
+					b.WriteString(fmt.Sprintf(" in %s", sec.In))
+				}
+				if len(sec.Scopes) > 0 {
+					b.WriteString(fmt.Sprintf(" [scopes: %s]", strings.Join(sec.Scopes, ", ")))
+				}
+				if sec.Description != "" {
+					b.WriteString(fmt.Sprintf("\n    %s", sec.Description))
+				}
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString(strings.Repeat("─", min(m.width-4, 100)))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
 func (m *Model) renderCurlActionsView() string {
 	var b strings.Builder
 
@@ -419,6 +663,26 @@ func (m *Model) renderCurlActionsView() string {
 	}
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n\n")
+
+	// Display request info before spec details
+	if m.curlActionSource != nil {
+		b.WriteString(fmt.Sprintf("Name: %s\n", m.curlActionSource.Name))
+		b.WriteString(fmt.Sprintf("Method: %s\n", m.curlActionSource.Method))
+		b.WriteString(fmt.Sprintf("URL: %s\n", m.curlActionSource.URL))
+		if m.curlActionSource.OpenAPIOperation != "" {
+			b.WriteString(fmt.Sprintf("Operation: %s\n", m.curlActionSource.OpenAPIOperation))
+		}
+		b.WriteString("\n")
+	}
+
+	// Render spec details section if this is a spec request
+	if m.curlActionSource != nil && !m.curlActionSource.IsManaged {
+		specDetails := m.renderSpecDetailsSection()
+		if specDetails != "" {
+			b.WriteString(specDetails)
+			b.WriteString("\n")
+		}
+	}
 
 	// Display curl command
 	b.WriteString(selectedStyle.Render("Curl Command:"))

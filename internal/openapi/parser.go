@@ -224,6 +224,14 @@ func (p *OpenAPIParser) createSpecRequestsFromPath(baseURL, path string, pathIte
 		req.OpenAPIOperation = fmt.Sprintf("%s %s", method, path)
 		req.OperationExists = true
 
+		// Extract additional spec details
+		req.Tags = op.Tags
+		req.Deprecated = op.Deprecated
+		req.Parameters = p.extractParameters(op, pathItem)
+		req.RequestBodySchema = p.extractRequestBodySchema(op)
+		req.Responses = p.extractResponses(op)
+		req.Security = p.extractSecurity(op)
+
 		requests = append(requests, *req)
 	}
 
@@ -386,6 +394,171 @@ func (p *OpenAPIParser) extractRequestBody(requestBody *openapi3.RequestBody) st
 	}
 
 	return ""
+}
+
+// extractParameters extracts parameter details from operation and path item
+func (p *OpenAPIParser) extractParameters(op *openapi3.Operation, pathItem *openapi3.PathItem) []models.ParameterDetail {
+	var params []models.ParameterDetail
+
+	// Combine parameters from both path and operation level
+	allParams := make([]*openapi3.ParameterRef, 0)
+	if pathItem.Parameters != nil {
+		allParams = append(allParams, pathItem.Parameters...)
+	}
+	if op.Parameters != nil {
+		allParams = append(allParams, op.Parameters...)
+	}
+
+	for _, paramRef := range allParams {
+		if paramRef.Value == nil {
+			continue
+		}
+		param := paramRef.Value
+
+		paramDetail := models.ParameterDetail{
+			Name:        param.Name,
+			In:          param.In,
+			Description: param.Description,
+			Required:    param.Required,
+		}
+
+		// Extract type and example from schema
+		if param.Schema != nil && param.Schema.Value != nil {
+			schema := param.Schema.Value
+			if len(schema.Type.Slice()) > 0 {
+				paramDetail.Type = schema.Type.Slice()[0]
+			}
+			if schema.Example != nil {
+				paramDetail.Example = fmt.Sprintf("%v", schema.Example)
+			}
+			if schema.Default != nil {
+				paramDetail.Default = fmt.Sprintf("%v", schema.Default)
+			}
+		}
+
+		// Check for parameter-level example
+		if param.Example != nil {
+			paramDetail.Example = fmt.Sprintf("%v", param.Example)
+		}
+
+		params = append(params, paramDetail)
+	}
+
+	return params
+}
+
+// extractRequestBodySchema extracts request body schema details
+func (p *OpenAPIParser) extractRequestBodySchema(op *openapi3.Operation) *models.RequestBodyDetail {
+	if op.RequestBody == nil || op.RequestBody.Value == nil {
+		return nil
+	}
+
+	rb := op.RequestBody.Value
+	detail := &models.RequestBodyDetail{
+		Description: rb.Description,
+		Required:    rb.Required,
+	}
+
+	// Check for application/json content
+	if content, ok := rb.Content["application/json"]; ok && content != nil {
+		detail.ContentType = "application/json"
+
+		// Extract schema description
+		if content.Schema != nil && content.Schema.Value != nil {
+			schema := content.Schema.Value
+
+			// Build a brief schema description
+			if schema.Type.Is("object") {
+				detail.Schema = fmt.Sprintf("Object with %d properties", len(schema.Properties))
+			} else if schema.Type.Is("array") {
+				detail.Schema = "Array"
+				if schema.Items != nil && schema.Items.Value != nil {
+					itemType := "unknown"
+					if len(schema.Items.Value.Type.Slice()) > 0 {
+						itemType = schema.Items.Value.Type.Slice()[0]
+					}
+					detail.Schema = fmt.Sprintf("Array of %s", itemType)
+				}
+			} else if len(schema.Type.Slice()) > 0 {
+				detail.Schema = schema.Type.Slice()[0]
+			}
+		}
+	}
+
+	return detail
+}
+
+// extractResponses extracts response details
+func (p *OpenAPIParser) extractResponses(op *openapi3.Operation) map[string]models.ResponseDetail {
+	responses := make(map[string]models.ResponseDetail)
+
+	if op.Responses == nil {
+		return responses
+	}
+
+	for statusCode, respRef := range op.Responses.Map() {
+		if respRef.Value == nil {
+			continue
+		}
+		resp := respRef.Value
+
+		detail := models.ResponseDetail{}
+		if resp.Description != nil {
+			detail.Description = *resp.Description
+		}
+
+		// Check for application/json content
+		if content, ok := resp.Content["application/json"]; ok && content != nil {
+			detail.ContentType = "application/json"
+
+			// Extract schema description
+			if content.Schema != nil && content.Schema.Value != nil {
+				schema := content.Schema.Value
+
+				// Build a brief schema description
+				if schema.Type.Is("object") {
+					detail.Schema = fmt.Sprintf("Object with %d properties", len(schema.Properties))
+				} else if schema.Type.Is("array") {
+					detail.Schema = "Array"
+					if schema.Items != nil && schema.Items.Value != nil {
+						itemType := "unknown"
+						if len(schema.Items.Value.Type.Slice()) > 0 {
+							itemType = schema.Items.Value.Type.Slice()[0]
+						}
+						detail.Schema = fmt.Sprintf("Array of %s", itemType)
+					}
+				} else if len(schema.Type.Slice()) > 0 {
+					detail.Schema = schema.Type.Slice()[0]
+				}
+			}
+		}
+
+		responses[statusCode] = detail
+	}
+
+	return responses
+}
+
+// extractSecurity extracts security requirements
+func (p *OpenAPIParser) extractSecurity(op *openapi3.Operation) []models.SecurityRequirement {
+	var secReqs []models.SecurityRequirement
+
+	if op.Security == nil || len(*op.Security) == 0 {
+		return secReqs
+	}
+
+	// For now, we'll return a simplified representation
+	// In a full implementation, we'd need access to the SecuritySchemes
+	for _, secReq := range *op.Security {
+		for schemeName, scopes := range secReq {
+			secReqs = append(secReqs, models.SecurityRequirement{
+				Name:   schemeName,
+				Scopes: scopes,
+			})
+		}
+	}
+
+	return secReqs
 }
 
 // ValidateOperation checks if an operation exists in the OpenAPI spec

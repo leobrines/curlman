@@ -463,6 +463,41 @@ func (m *Model) handleCurlActionsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Execute selected action
 		return m.executeCurlAction()
+
+	case " ", "tab":
+		// Toggle spec detail sections (only for spec requests)
+		if m.curlActionSource != nil && !m.curlActionSource.IsManaged {
+			return m.toggleSpecDetailSection(), nil
+		}
+		return m, nil
+
+	case "1":
+		// Toggle description section
+		if m.curlActionSource != nil && !m.curlActionSource.IsManaged {
+			m.specDetailExpanded["description"] = !m.specDetailExpanded["description"]
+		}
+		return m, nil
+
+	case "2":
+		// Toggle parameters section
+		if m.curlActionSource != nil && !m.curlActionSource.IsManaged {
+			m.specDetailExpanded["parameters"] = !m.specDetailExpanded["parameters"]
+		}
+		return m, nil
+
+	case "3":
+		// Toggle schemas section
+		if m.curlActionSource != nil && !m.curlActionSource.IsManaged {
+			m.specDetailExpanded["schemas"] = !m.specDetailExpanded["schemas"]
+		}
+		return m, nil
+
+	case "4":
+		// Toggle security section
+		if m.curlActionSource != nil && !m.curlActionSource.IsManaged {
+			m.specDetailExpanded["security"] = !m.specDetailExpanded["security"]
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -535,6 +570,36 @@ func (m *Model) handleOpenManagedRequest() (tea.Model, tea.Cmd) {
 	m.viewMode = ViewModeCurlActions
 
 	return m, nil
+}
+
+// toggleSpecDetailSection toggles through spec detail sections sequentially
+func (m *Model) toggleSpecDetailSection() tea.Model {
+	// Define the order of sections
+	sections := []string{"description", "parameters", "schemas", "security"}
+
+	// Find the first expanded section
+	currentExpandedIndex := -1
+	for i, section := range sections {
+		if m.specDetailExpanded[section] {
+			currentExpandedIndex = i
+			break
+		}
+	}
+
+	// If no section is expanded, expand the first one
+	if currentExpandedIndex == -1 {
+		m.specDetailExpanded[sections[0]] = true
+		return m
+	}
+
+	// Collapse current section
+	m.specDetailExpanded[sections[currentExpandedIndex]] = false
+
+	// Expand next section (cycle back to first)
+	nextIndex := (currentExpandedIndex + 1) % len(sections)
+	m.specDetailExpanded[sections[nextIndex]] = true
+
+	return m
 }
 
 func (m *Model) executeCurlAction() (tea.Model, tea.Cmd) {
