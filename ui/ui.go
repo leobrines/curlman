@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"curlman/config"
 	"curlman/environment"
 	"curlman/executor"
 	"curlman/exporter"
@@ -31,6 +32,7 @@ const (
 	viewEnvironments
 	viewEnvironmentDetail
 	viewEnvironmentVariables
+	viewGlobalVariables
 )
 
 type editField int
@@ -64,12 +66,20 @@ type Model struct {
 	selectedEnvIdx        int
 	viewingCollectionEnv  bool // true = collection envs, false = global envs
 	currentCollectionEnv  *models.CollectionEnvironment
+	globalConfig          *config.GlobalConfig
 }
 
 func NewModel() Model {
 	ti := textinput.New()
 	ti.Placeholder = "Enter value..."
 	ti.CharLimit = 500
+
+	// Load global config
+	globalConfig, err := config.Load()
+	if err != nil {
+		// If loading fails, create a new empty config
+		globalConfig = config.NewGlobalConfig()
+	}
 
 	return Model{
 		collection: &models.Collection{
@@ -81,6 +91,7 @@ func NewModel() Model {
 		currentView:  viewMain,
 		textInput:    ti,
 		environments: []string{},
+		globalConfig: globalConfig,
 	}
 }
 
@@ -201,6 +212,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+		case "g":
+			if m.currentView == viewMain {
+				m.currentView = viewGlobalVariables
+				m.cursor = 0
+				return m, nil
+			}
+
 		case "s":
 			if m.currentView == viewMain {
 				m.message = "Enter filename to save:"
@@ -283,8 +301,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "x":
 			if m.currentView == viewRequestDetail && m.selectedRequest >= 0 {
 				req := m.collection.Requests[m.selectedRequest]
-				// Use merged variables (collection + environment)
-				curl := exporter.ToCurlWithVariables(req, m.collection.GetAllVariables())
+				// Use merged variables (global + collection + environment)
+				curl := exporter.ToCurlWithVariables(req, m.collection.GetAllVariables(m.globalConfig.Variables))
 				m.message = "Curl command:\n" + curl
 				return m, nil
 			}
@@ -392,6 +410,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+			if m.currentView == viewGlobalVariables && len(m.globalConfig.Variables) > 0 {
+				varKeys := getSortedVariableKeys(m.globalConfig.Variables)
+				if m.cursor >= 0 && m.cursor < len(varKeys) {
+					keyToDelete := varKeys[m.cursor]
+					m.globalConfig.DeleteVariable(keyToDelete)
+					m.globalConfig.Save()
+					m.message = fmt.Sprintf("Global variable '%s' deleted", keyToDelete)
+					if m.cursor >= len(m.globalConfig.Variables) && m.cursor > 0 {
+						m.cursor--
+					}
+				}
+				return m, nil
+			}
 
 		case "n":
 			if m.currentView == viewRequestList {
@@ -412,13 +443,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.startEditingNewVariable()
 				return m, nil
 			}
+			if m.currentView == viewGlobalVariables {
+				m.startEditingNewGlobalVariable()
+				return m, nil
+			}
 
 		case "esc", "backspace":
 			if m.currentView == viewRequestDetail {
 				m.currentView = viewRequestList
 				return m, nil
 			}
-			if m.currentView == viewRequestList || m.currentView == viewVariables || m.currentView == viewEnvironments {
+			if m.currentView == viewRequestList || m.currentView == viewVariables || m.currentView == viewEnvironments || m.currentView == viewGlobalVariables {
 				m.currentView = viewMain
 				return m, nil
 			}
@@ -455,8 +490,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	case viewRequestDetail:
 		if m.selectedRequest >= 0 {
 			req := m.collection.Requests[m.selectedRequest]
-			// Use merged variables (collection + environment)
-			m.response = executor.Execute(req, m.collection.GetAllVariables())
+			// Use merged variables (global + collection + environment)
+			m.response = executor.Execute(req, m.collection.GetAllVariables(m.globalConfig.Variables))
 			m.currentView = viewResponse
 		}
 	case viewRequestEdit:
@@ -471,6 +506,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.handleEnvironmentSelect()
 	case viewEnvironmentVariables:
 		m.startEditingEnvironmentVariable()
+	case viewGlobalVariables:
+		m.startEditingGlobalVariable()
 	}
 	return m, nil
 }
@@ -721,6 +758,20 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.editingKey = ""
 			}
+		} else if m.currentView == viewGlobalVariables {
+			if m.editingKey == "" {
+				m.editingKey = value
+				m.message = "Enter global variable value:"
+				m.textInput.SetValue("")
+				m.textInput.Focus()
+				m.editing = true
+				return m, nil
+			} else {
+				m.globalConfig.SetVariable(m.editingKey, value)
+				m.globalConfig.Save()
+				m.message = fmt.Sprintf("Global variable '%s' set", m.editingKey)
+				m.editingKey = ""
+			}
 		} else if m.currentView == viewEnvironmentDetail && m.editingField == editName {
 			// Rename environment
 			if value == "" {
@@ -808,6 +859,8 @@ func (m Model) View() string {
 		return m.viewEnvironmentDetail()
 	case viewEnvironmentVariables:
 		return m.viewEnvironmentVariables()
+	case viewGlobalVariables:
+		return m.viewGlobalVariables()
 	}
 
 	return ""
@@ -870,6 +923,7 @@ func (m Model) viewMain() string {
 	s.WriteString("  i - Import OpenAPI YAML\n")
 	s.WriteString("  r - View Requests\n")
 	s.WriteString("  v - Manage Variables\n")
+	s.WriteString("  g - Manage Global Variables\n")
 	s.WriteString("  e - Manage Environments\n")
 	s.WriteString("  s - Save Collection (to ~/.curlman/)\n")
 	s.WriteString("  l - Load Collection (from ~/.curlman/)\n")
@@ -1440,4 +1494,73 @@ func (m Model) viewEnvironmentVariables() string {
 	}
 
 	return s.String()
+}
+
+func (m Model) viewGlobalVariables() string {
+	var s strings.Builder
+
+	s.WriteString(titleStyle.Render("Global Variables"))
+	s.WriteString("\n\n")
+	s.WriteString(dimStyle.Render("Global variables are available across all collections"))
+	s.WriteString("\n\n")
+
+	if len(m.globalConfig.Variables) == 0 {
+		s.WriteString(dimStyle.Render("No global variables set. Press 'n' or 'enter' to add one."))
+	} else {
+		varKeys := getSortedVariableKeys(m.globalConfig.Variables)
+		for i, key := range varKeys {
+			value := m.globalConfig.Variables[key]
+			line := fmt.Sprintf("%s = %s", key, value)
+
+			if i == m.cursor {
+				s.WriteString(selectedStyle.Render("> " + line))
+			} else {
+				s.WriteString("  " + line)
+			}
+			s.WriteString("\n")
+		}
+	}
+
+	s.WriteString("\n")
+	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: edit | n: new | d: delete | esc: back"))
+	s.WriteString("\n")
+
+	if m.editing {
+		s.WriteString("\n" + m.message + "\n")
+		s.WriteString(m.textInput.View())
+	}
+
+	if m.message != "" && !m.editing {
+		s.WriteString("\n" + successStyle.Render(m.message))
+	}
+
+	return s.String()
+}
+
+func (m *Model) startEditingGlobalVariable() {
+	varKeys := getSortedVariableKeys(m.globalConfig.Variables)
+
+	// If cursor is on an existing variable, edit it
+	if m.cursor >= 0 && m.cursor < len(varKeys) {
+		key := varKeys[m.cursor]
+		value := m.globalConfig.Variables[key]
+		m.editingKey = key
+		m.editing = true
+		m.textInput.Focus()
+		m.editingField = editHeader
+		m.textInput.SetValue(value)
+		m.message = fmt.Sprintf("Editing global variable '%s' (press enter to save):", key)
+	} else {
+		// Otherwise, create a new variable
+		m.startEditingNewGlobalVariable()
+	}
+}
+
+func (m *Model) startEditingNewGlobalVariable() {
+	m.editing = true
+	m.textInput.Focus()
+	m.editingField = editHeader
+	m.textInput.SetValue("")
+	m.editingKey = ""
+	m.message = "Enter global variable name:"
 }

@@ -145,22 +145,27 @@ func FromJSON(data string) (*Collection, error) {
 	return &collection, nil
 }
 
-// GetAllVariables merges environment variables and collection variables
-// Precedence (highest to lowest): collection env vars > global env vars > collection variables
-func (c *Collection) GetAllVariables() map[string]string {
+// GetAllVariables merges global, collection, and environment variables
+// Precedence (lowest to highest): Global < Collection < Global Environment < Collection Environment
+func (c *Collection) GetAllVariables(globalVars map[string]string) map[string]string {
 	merged := make(map[string]string)
 
-	// First add collection variables (lowest precedence)
+	// First add global variables (lowest precedence)
+	for k, v := range globalVars {
+		merged[k] = v
+	}
+
+	// Then add collection variables (overrides global)
 	for k, v := range c.Variables {
 		merged[k] = v
 	}
 
-	// Then add/override with global environment variables
+	// Then add global environment variables (overrides collection)
 	for k, v := range c.EnvironmentVars {
 		merged[k] = v
 	}
 
-	// Finally add/override with collection environment variables (highest precedence)
+	// Finally add collection environment variables (highest precedence, overrides all)
 	for k, v := range c.CollectionEnvVars {
 		merged[k] = v
 	}
