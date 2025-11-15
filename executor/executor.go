@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -97,4 +98,22 @@ func FormatResponse(resp *Response) string {
 	result.WriteString(resp.Body)
 
 	return result.String()
+}
+
+// SaveResponseBody saves the response body to a file
+func SaveResponseBody(resp *Response, filepath string) error {
+	if resp == nil {
+		return fmt.Errorf("response is nil")
+	}
+
+	if resp.Error != nil {
+		return fmt.Errorf("cannot save response with error: %w", resp.Error)
+	}
+
+	err := os.WriteFile(filepath, []byte(resp.Body), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
 }
