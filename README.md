@@ -15,7 +15,8 @@ A powerful, terminal-based alternative to Postman built with Go. CurlMan allows 
 - **Variable Injection**: Define variables and inject them into requests using `{{variable_name}}` syntax
 - **Request Execution**: Execute HTTP requests directly from the terminal
 - **Curl Export**: Export any request as a curl command
-- **Collection Persistence**: Save and load collections as JSON files
+- **Collection Persistence**: Save and load collections as JSON files in `~/.curlman/`
+- **Automatic Storage**: All collections are automatically stored in `~/.curlman/` directory
 - **Interactive TUI**: Beautiful terminal UI built with Bubble Tea
 
 ## Installation
@@ -37,10 +38,14 @@ Run the application:
 - `i` - Import OpenAPI YAML file
 - `r` - View requests
 - `v` - Manage variables
-- `s` - Save collection to JSON
-- `l` - Load collection from JSON
+- `s` - Save collection to JSON (saved to `~/.curlman/`)
+- `l` - Load collection from JSON (loaded from `~/.curlman/`)
 - `?` - Show help
 - `q` - Quit
+
+### Storage Directory
+
+CurlMan automatically creates and uses `~/.curlman/` as the storage directory for all collections. When you save or load a collection using just a filename (e.g., `my-collection.json`), it will be saved to or loaded from this directory. You can still use absolute paths if you need to save/load from a different location.
 
 ### Request List View
 
@@ -130,6 +135,7 @@ curlman/
 ├── ui/              # Bubble Tea TUI implementation
 ├── executor/        # HTTP request execution
 ├── exporter/        # Curl command generation
+├── storage/         # Storage directory management
 ├── main.go          # Application entry point
 ├── example.yaml     # Sample OpenAPI specification
 └── README.md        # This file
