@@ -5,13 +5,22 @@ import (
 	"strings"
 )
 
+// CollectionEnvironment represents an environment specific to a collection
+type CollectionEnvironment struct {
+	Name      string            `json:"name"`
+	Variables map[string]string `json:"variables"`
+}
+
 // Collection represents a collection of HTTP requests
 type Collection struct {
-	Name               string            `json:"name"`
-	Requests           []*Request        `json:"requests"`
-	Variables          map[string]string `json:"variables"`
-	ActiveEnvironment  string            `json:"active_environment,omitempty"`
-	EnvironmentVars    map[string]string `json:"-"` // Runtime environment variables, not persisted
+	Name                  string                   `json:"name"`
+	Requests              []*Request               `json:"requests"`
+	Variables             map[string]string        `json:"variables"`
+	ActiveEnvironment     string                   `json:"active_environment,omitempty"`
+	EnvironmentVars       map[string]string        `json:"-"` // Runtime environment variables, not persisted
+	Environments          []CollectionEnvironment  `json:"environments,omitempty"`
+	ActiveCollectionEnv   string                   `json:"active_collection_environment,omitempty"`
+	CollectionEnvVars     map[string]string        `json:"-"` // Runtime collection environment variables, not persisted
 }
 
 // Request represents an HTTP request
@@ -125,21 +134,34 @@ func FromJSON(data string) (*Collection, error) {
 	if collection.EnvironmentVars == nil {
 		collection.EnvironmentVars = make(map[string]string)
 	}
+	// Initialize CollectionEnvVars map if nil
+	if collection.CollectionEnvVars == nil {
+		collection.CollectionEnvVars = make(map[string]string)
+	}
+	// Initialize Environments slice if nil
+	if collection.Environments == nil {
+		collection.Environments = []CollectionEnvironment{}
+	}
 	return &collection, nil
 }
 
 // GetAllVariables merges environment variables and collection variables
-// Environment variables take precedence over collection variables
+// Precedence (highest to lowest): collection env vars > global env vars > collection variables
 func (c *Collection) GetAllVariables() map[string]string {
 	merged := make(map[string]string)
 
-	// First add collection variables
+	// First add collection variables (lowest precedence)
 	for k, v := range c.Variables {
 		merged[k] = v
 	}
 
-	// Then add/override with environment variables
+	// Then add/override with global environment variables
 	for k, v := range c.EnvironmentVars {
+		merged[k] = v
+	}
+
+	// Finally add/override with collection environment variables (highest precedence)
+	for k, v := range c.CollectionEnvVars {
 		merged[k] = v
 	}
 
@@ -158,4 +180,89 @@ func (c *Collection) SetEnvironmentVariables(envVars map[string]string) {
 func (c *Collection) ClearEnvironmentVariables() {
 	c.EnvironmentVars = make(map[string]string)
 	c.ActiveEnvironment = ""
+}
+
+// SetCollectionEnvironmentVariables updates the runtime collection environment variables
+func (c *Collection) SetCollectionEnvironmentVariables(envVars map[string]string) {
+	if c.CollectionEnvVars == nil {
+		c.CollectionEnvVars = make(map[string]string)
+	}
+	c.CollectionEnvVars = envVars
+}
+
+// ClearCollectionEnvironmentVariables clears the runtime collection environment variables
+func (c *Collection) ClearCollectionEnvironmentVariables() {
+	c.CollectionEnvVars = make(map[string]string)
+	c.ActiveCollectionEnv = ""
+}
+
+// GetCollectionEnvironment returns a collection environment by name
+func (c *Collection) GetCollectionEnvironment(name string) *CollectionEnvironment {
+	for i := range c.Environments {
+		if c.Environments[i].Name == name {
+			return &c.Environments[i]
+		}
+	}
+	return nil
+}
+
+// AddCollectionEnvironment adds a new collection environment
+func (c *Collection) AddCollectionEnvironment(name string) *CollectionEnvironment {
+	if c.Environments == nil {
+		c.Environments = []CollectionEnvironment{}
+	}
+
+	env := CollectionEnvironment{
+		Name:      name,
+		Variables: make(map[string]string),
+	}
+	c.Environments = append(c.Environments, env)
+	return &c.Environments[len(c.Environments)-1]
+}
+
+// DeleteCollectionEnvironment removes a collection environment by name
+func (c *Collection) DeleteCollectionEnvironment(name string) bool {
+	for i, env := range c.Environments {
+		if env.Name == name {
+			c.Environments = append(c.Environments[:i], c.Environments[i+1:]...)
+			if c.ActiveCollectionEnv == name {
+				c.ClearCollectionEnvironmentVariables()
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// RenameCollectionEnvironment renames a collection environment
+func (c *Collection) RenameCollectionEnvironment(oldName, newName string) bool {
+	env := c.GetCollectionEnvironment(oldName)
+	if env != nil {
+		env.Name = newName
+		if c.ActiveCollectionEnv == oldName {
+			c.ActiveCollectionEnv = newName
+		}
+		return true
+	}
+	return false
+}
+
+// ListCollectionEnvironments returns a list of collection environment names
+func (c *Collection) ListCollectionEnvironments() []string {
+	names := make([]string, len(c.Environments))
+	for i, env := range c.Environments {
+		names[i] = env.Name
+	}
+	return names
+}
+
+// ActivateCollectionEnvironment activates a collection environment
+func (c *Collection) ActivateCollectionEnvironment(name string) bool {
+	env := c.GetCollectionEnvironment(name)
+	if env != nil {
+		c.ActiveCollectionEnv = name
+		c.SetCollectionEnvironmentVariables(env.Variables)
+		return true
+	}
+	return false
 }

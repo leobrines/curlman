@@ -46,22 +46,24 @@ const (
 )
 
 type Model struct {
-	collection      *models.Collection
-	currentView     view
-	selectedRequest int
-	selectedField   int
-	cursor          int
-	textInput       textinput.Model
-	editing         bool
-	editingField    editField
-	editingKey      string
-	response        *executor.Response
-	message         string
-	width           int
-	height          int
-	environments    []string
-	currentEnv      *environment.Environment
-	selectedEnvIdx  int
+	collection            *models.Collection
+	currentView           view
+	selectedRequest       int
+	selectedField         int
+	cursor                int
+	textInput             textinput.Model
+	editing               bool
+	editingField          editField
+	editingKey            string
+	response              *executor.Response
+	message               string
+	width                 int
+	height                int
+	environments          []string
+	currentEnv            *environment.Environment
+	selectedEnvIdx        int
+	viewingCollectionEnv  bool // true = collection envs, false = global envs
+	currentCollectionEnv  *models.CollectionEnvironment
 }
 
 func NewModel() Model {
@@ -138,9 +140,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case "t":
+			if m.currentView == viewEnvironments {
+				// Toggle between global and collection environments
+				m.viewingCollectionEnv = !m.viewingCollectionEnv
+				m.cursor = 0
+				m.currentEnv = nil
+				m.currentCollectionEnv = nil
+
+				if m.viewingCollectionEnv {
+					// Switch to collection environments
+					m.environments = m.collection.ListCollectionEnvironments()
+					m.message = "Viewing collection environments"
+				} else {
+					// Switch to global environments
+					envs, err := environment.List()
+					if err != nil {
+						m.message = fmt.Sprintf("Error loading environments: %s", err)
+						return m, nil
+					}
+					m.environments = envs
+					m.message = "Viewing global environments"
+				}
+				return m, nil
+			}
+
 		case "e":
 			if m.currentView == viewMain {
-				// Load environments list
+				// Load environments list (global by default)
+				m.viewingCollectionEnv = false
 				envs, err := environment.List()
 				if err != nil {
 					m.message = fmt.Sprintf("Error loading environments: %s", err)
@@ -154,14 +182,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = viewRequestEdit
 				m.selectedField = 0
 				return m, nil
-			} else if m.currentView == viewEnvironmentDetail && m.currentEnv != nil {
+			} else if m.currentView == viewEnvironmentDetail {
 				// Edit environment name
-				m.message = "Enter new environment name:"
-				m.textInput.SetValue(m.currentEnv.Name)
-				m.textInput.Focus()
-				m.editing = true
-				m.editingField = editName
-				return m, nil
+				if m.viewingCollectionEnv && m.currentCollectionEnv != nil {
+					m.message = "Enter new environment name:"
+					m.textInput.SetValue(m.currentCollectionEnv.Name)
+					m.textInput.Focus()
+					m.editing = true
+					m.editingField = editName
+					return m, nil
+				} else if !m.viewingCollectionEnv && m.currentEnv != nil {
+					m.message = "Enter new environment name:"
+					m.textInput.SetValue(m.currentEnv.Name)
+					m.textInput.Focus()
+					m.editing = true
+					m.editingField = editName
+					return m, nil
+				}
 			}
 
 		case "s":
@@ -179,16 +216,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.editing = true
 				m.editingField = editBody
 				return m, nil
-			} else if m.currentView == viewEnvironmentDetail && m.currentEnv != nil {
+			} else if m.currentView == viewEnvironmentDetail {
 				// Save environment
-				err := m.currentEnv.Save()
-				if err != nil {
-					m.message = fmt.Sprintf("Error saving environment: %s", err)
-				} else {
-					m.message = fmt.Sprintf("Environment '%s' saved", m.currentEnv.Name)
-					// Reload environments list
-					envs, _ := environment.List()
-					m.environments = envs
+				if m.viewingCollectionEnv {
+					// Collection environments are saved with the collection
+					m.message = "Collection environment will be saved with the collection"
+				} else if m.currentEnv != nil {
+					err := m.currentEnv.Save()
+					if err != nil {
+						m.message = fmt.Sprintf("Error saving environment: %s", err)
+					} else {
+						m.message = fmt.Sprintf("Environment '%s' saved", m.currentEnv.Name)
+						// Reload environments list
+						envs, _ := environment.List()
+						m.environments = envs
+					}
 				}
 				return m, nil
 			}
@@ -248,11 +290,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "a":
-			if m.currentView == viewEnvironmentDetail && m.currentEnv != nil {
-				// Activate environment
-				m.collection.ActiveEnvironment = m.currentEnv.Name
-				m.collection.SetEnvironmentVariables(m.currentEnv.Variables)
-				m.message = fmt.Sprintf("Environment '%s' activated", m.currentEnv.Name)
+			if m.currentView == viewEnvironmentDetail {
+				if m.viewingCollectionEnv && m.currentCollectionEnv != nil {
+					// Activate collection environment
+					m.collection.ActivateCollectionEnvironment(m.currentCollectionEnv.Name)
+					m.message = fmt.Sprintf("Collection environment '%s' activated", m.currentCollectionEnv.Name)
+				} else if !m.viewingCollectionEnv && m.currentEnv != nil {
+					// Activate global environment
+					m.collection.ActiveEnvironment = m.currentEnv.Name
+					m.collection.SetEnvironmentVariables(m.currentEnv.Variables)
+					m.message = fmt.Sprintf("Global environment '%s' activated", m.currentEnv.Name)
+				}
 				return m, nil
 			}
 
@@ -270,40 +318,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentView == viewEnvironments && m.cursor < len(m.environments) {
 				// Delete environment
 				envName := m.environments[m.cursor]
-				err := environment.Delete(envName)
-				if err != nil {
-					m.message = fmt.Sprintf("Error deleting environment: %s", err)
+
+				if m.viewingCollectionEnv {
+					// Delete collection environment
+					if m.collection.DeleteCollectionEnvironment(envName) {
+						m.environments = m.collection.ListCollectionEnvironments()
+						if m.cursor >= len(m.environments) && m.cursor > 0 {
+							m.cursor--
+						}
+						m.message = fmt.Sprintf("Collection environment '%s' deleted", envName)
+					} else {
+						m.message = fmt.Sprintf("Error deleting collection environment: %s", envName)
+					}
 				} else {
-					// If deleted environment was active, clear it
-					if m.collection.ActiveEnvironment == envName {
-						m.collection.ClearEnvironmentVariables()
+					// Delete global environment
+					err := environment.Delete(envName)
+					if err != nil {
+						m.message = fmt.Sprintf("Error deleting environment: %s", err)
+					} else {
+						// If deleted environment was active, clear it
+						if m.collection.ActiveEnvironment == envName {
+							m.collection.ClearEnvironmentVariables()
+						}
+						// Reload environments list
+						envs, _ := environment.List()
+						m.environments = envs
+						if m.cursor >= len(m.environments) && m.cursor > 0 {
+							m.cursor--
+						}
+						m.message = fmt.Sprintf("Environment '%s' deleted", envName)
 					}
-					// Reload environments list
-					envs, _ := environment.List()
-					m.environments = envs
-					if m.cursor >= len(m.environments) && m.cursor > 0 {
-						m.cursor--
-					}
-					m.message = fmt.Sprintf("Environment '%s' deleted", envName)
 				}
 				return m, nil
-			} else if m.currentView == viewEnvironmentDetail && m.currentEnv != nil {
+			} else if m.currentView == viewEnvironmentDetail {
 				// Delete current environment
-				envName := m.currentEnv.Name
-				err := environment.Delete(envName)
-				if err != nil {
-					m.message = fmt.Sprintf("Error deleting environment: %s", err)
-				} else {
-					// If deleted environment was active, clear it
-					if m.collection.ActiveEnvironment == envName {
-						m.collection.ClearEnvironmentVariables()
+				if m.viewingCollectionEnv && m.currentCollectionEnv != nil {
+					envName := m.currentCollectionEnv.Name
+					if m.collection.DeleteCollectionEnvironment(envName) {
+						m.environments = m.collection.ListCollectionEnvironments()
+						m.currentCollectionEnv = nil
+						m.currentView = viewEnvironments
+						m.message = fmt.Sprintf("Collection environment '%s' deleted", envName)
 					}
-					// Reload environments list and go back
-					envs, _ := environment.List()
-					m.environments = envs
-					m.currentEnv = nil
-					m.currentView = viewEnvironments
-					m.message = fmt.Sprintf("Environment '%s' deleted", envName)
+				} else if !m.viewingCollectionEnv && m.currentEnv != nil {
+					envName := m.currentEnv.Name
+					err := environment.Delete(envName)
+					if err != nil {
+						m.message = fmt.Sprintf("Error deleting environment: %s", err)
+					} else {
+						// If deleted environment was active, clear it
+						if m.collection.ActiveEnvironment == envName {
+							m.collection.ClearEnvironmentVariables()
+						}
+						// Reload environments list and go back
+						envs, _ := environment.List()
+						m.environments = envs
+						m.currentEnv = nil
+						m.currentView = viewEnvironments
+						m.message = fmt.Sprintf("Environment '%s' deleted", envName)
+					}
 				}
 				return m, nil
 			}
@@ -512,12 +585,16 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if m.collection.EnvironmentVars == nil {
 						m.collection.EnvironmentVars = make(map[string]string)
 					}
-					// Load active environment if set
+					// Load active global environment if set
 					if m.collection.ActiveEnvironment != "" {
 						env, err := environment.Load(m.collection.ActiveEnvironment)
 						if err == nil {
 							m.collection.SetEnvironmentVariables(env.Variables)
 						}
+					}
+					// Load active collection environment if set
+					if m.collection.ActiveCollectionEnv != "" {
+						m.collection.ActivateCollectionEnvironment(m.collection.ActiveCollectionEnv)
 					}
 					storageDir, _ := storage.GetStorageDir()
 					m.message = fmt.Sprintf("Loaded collection: %s\n(From: %s/%s)", collection.Name, storageDir, value)
@@ -593,23 +670,40 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.message = "Environment name cannot be empty"
 				return m, nil
 			}
-			if environment.Exists(value) {
-				m.message = fmt.Sprintf("Environment '%s' already exists", value)
-				return m, nil
-			}
-			newEnv := environment.NewEnvironment(value)
-			err := newEnv.Save()
-			if err != nil {
-				m.message = fmt.Sprintf("Error creating environment: %s", err)
-			} else {
-				// Reload environments list
-				envs, _ := environment.List()
-				m.environments = envs
-				m.currentEnv = newEnv
+
+			if m.viewingCollectionEnv {
+				// Create collection environment
+				if m.collection.GetCollectionEnvironment(value) != nil {
+					m.message = fmt.Sprintf("Collection environment '%s' already exists", value)
+					return m, nil
+				}
+				newEnv := m.collection.AddCollectionEnvironment(value)
+				m.environments = m.collection.ListCollectionEnvironments()
+				m.currentCollectionEnv = newEnv
+				m.currentEnv = nil
 				m.currentView = viewEnvironmentDetail
-				m.message = fmt.Sprintf("Environment '%s' created", value)
+				m.message = fmt.Sprintf("Collection environment '%s' created", value)
+			} else {
+				// Create global environment
+				if environment.Exists(value) {
+					m.message = fmt.Sprintf("Environment '%s' already exists", value)
+					return m, nil
+				}
+				newEnv := environment.NewEnvironment(value)
+				err := newEnv.Save()
+				if err != nil {
+					m.message = fmt.Sprintf("Error creating environment: %s", err)
+				} else {
+					// Reload environments list
+					envs, _ := environment.List()
+					m.environments = envs
+					m.currentEnv = newEnv
+					m.currentCollectionEnv = nil
+					m.currentView = viewEnvironmentDetail
+					m.message = fmt.Sprintf("Environment '%s' created", value)
+				}
 			}
-		} else if m.currentView == viewEnvironmentVariables && m.currentEnv != nil {
+		} else if m.currentView == viewEnvironmentVariables {
 			if m.editingKey == "" {
 				m.editingKey = value
 				m.message = "Enter variable value:"
@@ -618,37 +712,55 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.editing = true
 				return m, nil
 			} else {
-				m.currentEnv.Variables[m.editingKey] = value
-				m.message = fmt.Sprintf("Variable '%s' set", m.editingKey)
+				if m.viewingCollectionEnv && m.currentCollectionEnv != nil {
+					m.currentCollectionEnv.Variables[m.editingKey] = value
+					m.message = fmt.Sprintf("Variable '%s' set in collection environment", m.editingKey)
+				} else if !m.viewingCollectionEnv && m.currentEnv != nil {
+					m.currentEnv.Variables[m.editingKey] = value
+					m.message = fmt.Sprintf("Variable '%s' set", m.editingKey)
+				}
 				m.editingKey = ""
 			}
-		} else if m.currentView == viewEnvironmentDetail && m.editingField == editName && m.currentEnv != nil {
+		} else if m.currentView == viewEnvironmentDetail && m.editingField == editName {
 			// Rename environment
-			oldName := m.currentEnv.Name
 			if value == "" {
 				m.message = "Environment name cannot be empty"
 				return m, nil
 			}
-			if value != oldName && environment.Exists(value) {
-				m.message = fmt.Sprintf("Environment '%s' already exists", value)
-				return m, nil
-			}
-			// Delete old environment file
-			environment.Delete(oldName)
-			// Update name and save
-			m.currentEnv.Name = value
-			err := m.currentEnv.Save()
-			if err != nil {
-				m.message = fmt.Sprintf("Error renaming environment: %s", err)
-			} else {
-				// Update active environment name if this was active
-				if m.collection.ActiveEnvironment == oldName {
-					m.collection.ActiveEnvironment = value
+
+			if m.viewingCollectionEnv && m.currentCollectionEnv != nil {
+				oldName := m.currentCollectionEnv.Name
+				if value != oldName && m.collection.GetCollectionEnvironment(value) != nil {
+					m.message = fmt.Sprintf("Collection environment '%s' already exists", value)
+					return m, nil
 				}
-				// Reload environments list
-				envs, _ := environment.List()
-				m.environments = envs
-				m.message = fmt.Sprintf("Environment renamed to '%s'", value)
+				// Rename collection environment
+				m.collection.RenameCollectionEnvironment(oldName, value)
+				m.environments = m.collection.ListCollectionEnvironments()
+				m.message = fmt.Sprintf("Collection environment renamed to '%s'", value)
+			} else if !m.viewingCollectionEnv && m.currentEnv != nil {
+				oldName := m.currentEnv.Name
+				if value != oldName && environment.Exists(value) {
+					m.message = fmt.Sprintf("Environment '%s' already exists", value)
+					return m, nil
+				}
+				// Delete old environment file
+				environment.Delete(oldName)
+				// Update name and save
+				m.currentEnv.Name = value
+				err := m.currentEnv.Save()
+				if err != nil {
+					m.message = fmt.Sprintf("Error renaming environment: %s", err)
+				} else {
+					// Update active environment name if this was active
+					if m.collection.ActiveEnvironment == oldName {
+						m.collection.ActiveEnvironment = value
+					}
+					// Reload environments list
+					envs, _ := environment.List()
+					m.environments = envs
+					m.message = fmt.Sprintf("Environment renamed to '%s'", value)
+				}
 			}
 		}
 
@@ -731,12 +843,20 @@ func (m Model) viewMain() string {
 	s.WriteString(fmt.Sprintf("Requests: %d\n", len(m.collection.Requests)))
 	s.WriteString(fmt.Sprintf("Variables: %d\n", len(m.collection.Variables)))
 
-	// Display active environment
+	// Display active global environment
 	if m.collection.ActiveEnvironment != "" {
-		s.WriteString(successStyle.Render(fmt.Sprintf("Active Environment: %s (%d vars)\n",
+		s.WriteString(successStyle.Render(fmt.Sprintf("Active Global Environment: %s (%d vars)\n",
 			m.collection.ActiveEnvironment, len(m.collection.EnvironmentVars))))
 	} else {
-		s.WriteString(dimStyle.Render("Active Environment: None\n"))
+		s.WriteString(dimStyle.Render("Active Global Environment: None\n"))
+	}
+
+	// Display active collection environment
+	if m.collection.ActiveCollectionEnv != "" {
+		s.WriteString(successStyle.Render(fmt.Sprintf("Active Collection Environment: %s (%d vars)\n",
+			m.collection.ActiveCollectionEnv, len(m.collection.CollectionEnvVars))))
+	} else {
+		s.WriteString(dimStyle.Render("Active Collection Environment: None\n"))
 	}
 
 	// Display storage directory
@@ -1111,12 +1231,27 @@ func (m *Model) handleEnvironmentSelect() {
 	if m.cursor < len(m.environments) {
 		// Select an existing environment
 		envName := m.environments[m.cursor]
-		env, err := environment.Load(envName)
-		if err != nil {
-			m.message = fmt.Sprintf("Error loading environment: %s", err)
-			return
+
+		if m.viewingCollectionEnv {
+			// Load collection environment
+			collEnv := m.collection.GetCollectionEnvironment(envName)
+			if collEnv == nil {
+				m.message = fmt.Sprintf("Error loading collection environment: %s", envName)
+				return
+			}
+			m.currentCollectionEnv = collEnv
+			m.currentEnv = nil
+		} else {
+			// Load global environment
+			env, err := environment.Load(envName)
+			if err != nil {
+				m.message = fmt.Sprintf("Error loading environment: %s", err)
+				return
+			}
+			m.currentEnv = env
+			m.currentCollectionEnv = nil
 		}
-		m.currentEnv = env
+
 		m.selectedEnvIdx = m.cursor
 		m.currentView = viewEnvironmentDetail
 		m.cursor = 0
@@ -1131,7 +1266,7 @@ func (m *Model) handleEnvironmentSelect() {
 }
 
 func (m *Model) startEditingEnvironmentVariable() {
-	if m.currentEnv == nil {
+	if m.currentEnv == nil && m.currentCollectionEnv == nil {
 		return
 	}
 	m.editing = true
@@ -1144,22 +1279,35 @@ func (m *Model) startEditingEnvironmentVariable() {
 func (m Model) viewEnvironments() string {
 	var s strings.Builder
 
-	s.WriteString(titleStyle.Render("Environments"))
+	if m.viewingCollectionEnv {
+		s.WriteString(titleStyle.Render("Collection Environments"))
+	} else {
+		s.WriteString(titleStyle.Render("Global Environments"))
+	}
 	s.WriteString("\n\n")
 
-	if m.collection.ActiveEnvironment != "" {
+	if m.viewingCollectionEnv && m.collection.ActiveCollectionEnv != "" {
+		s.WriteString(successStyle.Render(fmt.Sprintf("Active: %s\n\n", m.collection.ActiveCollectionEnv)))
+	} else if !m.viewingCollectionEnv && m.collection.ActiveEnvironment != "" {
 		s.WriteString(successStyle.Render(fmt.Sprintf("Active: %s\n\n", m.collection.ActiveEnvironment)))
 	}
 
 	if len(m.environments) == 0 {
 		s.WriteString(dimStyle.Render("No environments yet. Press 'enter' to create one."))
 	} else {
+		activeEnv := ""
+		if m.viewingCollectionEnv {
+			activeEnv = m.collection.ActiveCollectionEnv
+		} else {
+			activeEnv = m.collection.ActiveEnvironment
+		}
+
 		for i, envName := range m.environments {
 			cursor := " "
 			if i == m.cursor {
 				cursor = ">"
 			}
-			if envName == m.collection.ActiveEnvironment {
+			if envName == activeEnv {
 				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s (active)\n", cursor, envName)))
 			} else if i == m.cursor {
 				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s\n", cursor, envName)))
@@ -1179,7 +1327,7 @@ func (m Model) viewEnvironments() string {
 	}
 
 	s.WriteString("\n\n")
-	s.WriteString(dimStyle.Render("enter: select/create | d: delete | esc: back"))
+	s.WriteString(dimStyle.Render("enter: select/create | d: delete | t: toggle global/collection | esc: back"))
 	s.WriteString("\n")
 
 	if m.editing {
@@ -1193,25 +1341,46 @@ func (m Model) viewEnvironments() string {
 }
 
 func (m Model) viewEnvironmentDetail() string {
-	if m.currentEnv == nil {
-		return "No environment selected"
+	var envName string
+	var variables map[string]string
+
+	if m.viewingCollectionEnv {
+		if m.currentCollectionEnv == nil {
+			return "No collection environment selected"
+		}
+		envName = m.currentCollectionEnv.Name
+		variables = m.currentCollectionEnv.Variables
+	} else {
+		if m.currentEnv == nil {
+			return "No environment selected"
+		}
+		envName = m.currentEnv.Name
+		variables = m.currentEnv.Variables
 	}
 
 	var s strings.Builder
 
-	s.WriteString(titleStyle.Render(fmt.Sprintf("Environment: %s", m.currentEnv.Name)))
+	if m.viewingCollectionEnv {
+		s.WriteString(titleStyle.Render(fmt.Sprintf("Collection Environment: %s", envName)))
+	} else {
+		s.WriteString(titleStyle.Render(fmt.Sprintf("Global Environment: %s", envName)))
+	}
 	s.WriteString("\n\n")
 
-	s.WriteString(fmt.Sprintf("Variables: %d\n\n", len(m.currentEnv.Variables)))
+	s.WriteString(fmt.Sprintf("Variables: %d\n\n", len(variables)))
 
-	if len(m.currentEnv.Variables) > 0 {
-		for k, v := range m.currentEnv.Variables {
+	if len(variables) > 0 {
+		for k, v := range variables {
 			s.WriteString(fmt.Sprintf("  %s = %s\n", k, v))
 		}
 		s.WriteString("\n")
 	}
 
-	s.WriteString(dimStyle.Render("a: activate | v: manage variables | e: edit name | s: save | d: delete | esc: back"))
+	if m.viewingCollectionEnv {
+		s.WriteString(dimStyle.Render("a: activate | v: manage variables | e: edit name | d: delete | esc: back"))
+	} else {
+		s.WriteString(dimStyle.Render("a: activate | v: manage variables | e: edit name | s: save | d: delete | esc: back"))
+	}
 	s.WriteString("\n")
 
 	if m.editing {
@@ -1225,19 +1394,36 @@ func (m Model) viewEnvironmentDetail() string {
 }
 
 func (m Model) viewEnvironmentVariables() string {
-	if m.currentEnv == nil {
-		return "No environment selected"
+	var envName string
+	var variables map[string]string
+
+	if m.viewingCollectionEnv {
+		if m.currentCollectionEnv == nil {
+			return "No collection environment selected"
+		}
+		envName = m.currentCollectionEnv.Name
+		variables = m.currentCollectionEnv.Variables
+	} else {
+		if m.currentEnv == nil {
+			return "No environment selected"
+		}
+		envName = m.currentEnv.Name
+		variables = m.currentEnv.Variables
 	}
 
 	var s strings.Builder
 
-	s.WriteString(titleStyle.Render(fmt.Sprintf("Environment Variables: %s", m.currentEnv.Name)))
+	if m.viewingCollectionEnv {
+		s.WriteString(titleStyle.Render(fmt.Sprintf("Collection Environment Variables: %s", envName)))
+	} else {
+		s.WriteString(titleStyle.Render(fmt.Sprintf("Environment Variables: %s", envName)))
+	}
 	s.WriteString("\n\n")
 
-	if len(m.currentEnv.Variables) == 0 {
+	if len(variables) == 0 {
 		s.WriteString(dimStyle.Render("No variables set. Press 'enter' to add one."))
 	} else {
-		for k, v := range m.currentEnv.Variables {
+		for k, v := range variables {
 			s.WriteString(fmt.Sprintf("%s = %s\n", k, v))
 		}
 	}
