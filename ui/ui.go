@@ -5,6 +5,7 @@ import (
 	"curlman/exporter"
 	"curlman/models"
 	"curlman/openapi"
+	"curlman/storage"
 	"fmt"
 	"strings"
 
@@ -351,7 +352,9 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if err != nil {
 					m.message = fmt.Sprintf("Error saving: %s", err)
 				} else {
-					m.message = fmt.Sprintf("Collection saved to %s", value)
+					// Show the actual path where the file was saved
+					storageDir, _ := storage.GetStorageDir()
+					m.message = fmt.Sprintf("Collection saved to ~/.curlman/%s\n(Full path: %s/%s)", value, storageDir, value)
 				}
 			} else if m.editingField == editURL { // Load collection
 				collection, err := openapi.LoadCollection(value)
@@ -359,7 +362,8 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.message = fmt.Sprintf("Error loading: %s", err)
 				} else {
 					m.collection = collection
-					m.message = fmt.Sprintf("Loaded collection: %s", collection.Name)
+					storageDir, _ := storage.GetStorageDir()
+					m.message = fmt.Sprintf("Loaded collection: %s\n(From: %s/%s)", collection.Name, storageDir, value)
 				}
 			}
 		} else if m.currentView == viewRequestEdit && m.selectedRequest >= 0 {
@@ -491,14 +495,21 @@ func (m Model) viewMain() string {
 
 	s.WriteString(fmt.Sprintf("Collection: %s\n", m.collection.Name))
 	s.WriteString(fmt.Sprintf("Requests: %d\n", len(m.collection.Requests)))
-	s.WriteString(fmt.Sprintf("Variables: %d\n\n", len(m.collection.Variables)))
+	s.WriteString(fmt.Sprintf("Variables: %d\n", len(m.collection.Variables)))
+
+	// Display storage directory
+	storageDir, err := storage.GetStorageDir()
+	if err == nil {
+		s.WriteString(dimStyle.Render(fmt.Sprintf("Storage: %s\n", storageDir)))
+	}
+	s.WriteString("\n")
 
 	s.WriteString("Commands:\n")
 	s.WriteString("  i - Import OpenAPI YAML\n")
 	s.WriteString("  r - View Requests\n")
 	s.WriteString("  v - Manage Variables\n")
-	s.WriteString("  s - Save Collection\n")
-	s.WriteString("  l - Load Collection\n")
+	s.WriteString("  s - Save Collection (to ~/.curlman/)\n")
+	s.WriteString("  l - Load Collection (from ~/.curlman/)\n")
 	s.WriteString("  ? - Help\n")
 	s.WriteString("  q - Quit\n\n")
 
@@ -690,12 +701,19 @@ func (m Model) viewHelp() string {
 	s.WriteString(titleStyle.Render("CurlMan - Help"))
 	s.WriteString("\n\n")
 
+	// Display storage directory info
+	storageDir, err := storage.GetStorageDir()
+	if err == nil {
+		s.WriteString(dimStyle.Render(fmt.Sprintf("Storage Directory: %s\n", storageDir)))
+		s.WriteString(dimStyle.Render("All collections are saved/loaded from this directory by default.\n\n"))
+	}
+
 	s.WriteString("Main View:\n")
 	s.WriteString("  i - Import OpenAPI YAML file\n")
 	s.WriteString("  r - View and manage requests\n")
 	s.WriteString("  v - Manage variables\n")
-	s.WriteString("  s - Save collection to JSON\n")
-	s.WriteString("  l - Load collection from JSON\n")
+	s.WriteString("  s - Save collection to JSON (in ~/.curlman/)\n")
+	s.WriteString("  l - Load collection from JSON (from ~/.curlman/)\n")
 	s.WriteString("  q - Quit application\n\n")
 
 	s.WriteString("Request List View:\n")

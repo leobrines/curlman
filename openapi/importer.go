@@ -3,20 +3,22 @@ package openapi
 import (
 	"context"
 	"curlman/models"
+	"curlman/storage"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
 )
 
 // ImportFromFile imports an OpenAPI YAML file and creates a collection
-func ImportFromFile(filepath string) (*models.Collection, error) {
+func ImportFromFile(filePath string) (*models.Collection, error) {
 	// Load the OpenAPI document
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
 
-	doc, err := loader.LoadFromFile(filepath)
+	doc, err := loader.LoadFromFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load OpenAPI file: %w", err)
 	}
@@ -169,13 +171,22 @@ func convertOperation(baseURL, path, method string, operation *openapi3.Operatio
 }
 
 // SaveCollection saves a collection to a file
-func SaveCollection(collection *models.Collection, filepath string) error {
+// If filePath is just a filename (no directory), it will be saved in ~/.curlman/
+func SaveCollection(collection *models.Collection, filePath string) error {
 	data, err := collection.ToJSON()
 	if err != nil {
 		return fmt.Errorf("failed to serialize collection: %w", err)
 	}
 
-	err = os.WriteFile(filepath, []byte(data), 0644)
+	// If filePath is just a filename (no directory separator), use storage directory
+	if filePath == filepath.Base(filePath) {
+		filePath, err = storage.GetFilePath(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to get storage path: %w", err)
+		}
+	}
+
+	err = os.WriteFile(filePath, []byte(data), 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write collection file: %w", err)
 	}
@@ -184,8 +195,18 @@ func SaveCollection(collection *models.Collection, filepath string) error {
 }
 
 // LoadCollection loads a collection from a file
-func LoadCollection(filepath string) (*models.Collection, error) {
-	data, err := os.ReadFile(filepath)
+// If filePath is just a filename (no directory), it will be loaded from ~/.curlman/
+func LoadCollection(filePath string) (*models.Collection, error) {
+	// If filePath is just a filename (no directory separator), use storage directory
+	if filePath == filepath.Base(filePath) {
+		var err error
+		filePath, err = storage.GetFilePath(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get storage path: %w", err)
+		}
+	}
+
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read collection file: %w", err)
 	}
