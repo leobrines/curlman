@@ -131,6 +131,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.editing = true
 				m.editingField = editPath
 				return m, nil
+			} else if m.currentView == viewResponse && m.response != nil {
+				m.message = "Enter filename to save response:"
+				m.textInput.SetValue("response.txt")
+				m.textInput.Focus()
+				m.editing = true
+				m.editingField = editBody
+				return m, nil
 			}
 
 		case "l":
@@ -418,6 +425,14 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.message = fmt.Sprintf("Query parameter '%s' set", m.editingKey)
 				m.editingKey = ""
 			}
+		} else if m.currentView == viewResponse && m.response != nil {
+			// Save response body to file
+			err := executor.SaveResponseBody(m.response, value)
+			if err != nil {
+				m.message = fmt.Sprintf("Error saving response: %s", err)
+			} else {
+				m.message = fmt.Sprintf("Response body saved to %s", value)
+			}
 		}
 
 		return m, nil
@@ -649,7 +664,17 @@ func (m Model) viewResponse() string {
 	}
 
 	s.WriteString("\n\n")
-	s.WriteString(dimStyle.Render("esc: back"))
+	s.WriteString(dimStyle.Render("s: save body | esc: back"))
+	s.WriteString("\n")
+
+	if m.editing {
+		s.WriteString("\n" + m.message + "\n")
+		s.WriteString(m.textInput.View())
+	}
+
+	if m.message != "" && !m.editing {
+		s.WriteString("\n" + successStyle.Render(m.message))
+	}
 
 	return s.String()
 }
