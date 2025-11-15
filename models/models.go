@@ -7,9 +7,11 @@ import (
 
 // Collection represents a collection of HTTP requests
 type Collection struct {
-	Name      string            `json:"name"`
-	Requests  []*Request        `json:"requests"`
-	Variables map[string]string `json:"variables"`
+	Name               string            `json:"name"`
+	Requests           []*Request        `json:"requests"`
+	Variables          map[string]string `json:"variables"`
+	ActiveEnvironment  string            `json:"active_environment,omitempty"`
+	EnvironmentVars    map[string]string `json:"-"` // Runtime environment variables, not persisted
 }
 
 // Request represents an HTTP request
@@ -119,5 +121,41 @@ func FromJSON(data string) (*Collection, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Initialize EnvironmentVars map if nil
+	if collection.EnvironmentVars == nil {
+		collection.EnvironmentVars = make(map[string]string)
+	}
 	return &collection, nil
+}
+
+// GetAllVariables merges environment variables and collection variables
+// Environment variables take precedence over collection variables
+func (c *Collection) GetAllVariables() map[string]string {
+	merged := make(map[string]string)
+
+	// First add collection variables
+	for k, v := range c.Variables {
+		merged[k] = v
+	}
+
+	// Then add/override with environment variables
+	for k, v := range c.EnvironmentVars {
+		merged[k] = v
+	}
+
+	return merged
+}
+
+// SetEnvironmentVariables updates the runtime environment variables
+func (c *Collection) SetEnvironmentVariables(envVars map[string]string) {
+	if c.EnvironmentVars == nil {
+		c.EnvironmentVars = make(map[string]string)
+	}
+	c.EnvironmentVars = envVars
+}
+
+// ClearEnvironmentVariables clears the runtime environment variables
+func (c *Collection) ClearEnvironmentVariables() {
+	c.EnvironmentVars = make(map[string]string)
+	c.ActiveEnvironment = ""
 }
