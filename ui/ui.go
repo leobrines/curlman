@@ -8,6 +8,7 @@ import (
 	"curlman/openapi"
 	"curlman/storage"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -306,6 +307,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+			if m.currentView == viewVariables && len(m.collection.Variables) > 0 {
+				varKeys := getSortedVariableKeys(m.collection.Variables)
+				if m.cursor >= 0 && m.cursor < len(varKeys) {
+					keyToDelete := varKeys[m.cursor]
+					delete(m.collection.Variables, keyToDelete)
+					m.message = fmt.Sprintf("Variable '%s' deleted", keyToDelete)
+					if m.cursor >= len(m.collection.Variables) && m.cursor > 0 {
+						m.cursor--
+					}
+				}
+				return m, nil
+			}
 
 		case "n":
 			if m.currentView == viewRequestList {
@@ -320,6 +333,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedRequest = len(m.collection.Requests) - 1
 				m.currentView = viewRequestEdit
 				m.message = "New request created"
+				return m, nil
+			}
+			if m.currentView == viewVariables {
+				m.startEditingNewVariable()
 				return m, nil
 			}
 
@@ -414,10 +431,30 @@ func (m *Model) startEditing() {
 }
 
 func (m *Model) startEditingVariable() {
+	varKeys := getSortedVariableKeys(m.collection.Variables)
+
+	// If cursor is on an existing variable, edit it
+	if m.cursor >= 0 && m.cursor < len(varKeys) {
+		key := varKeys[m.cursor]
+		value := m.collection.Variables[key]
+		m.editingKey = key
+		m.editing = true
+		m.textInput.Focus()
+		m.editingField = editHeader
+		m.textInput.SetValue(value)
+		m.message = fmt.Sprintf("Editing variable '%s' (press enter to save):", key)
+	} else {
+		// Otherwise, create a new variable
+		m.startEditingNewVariable()
+	}
+}
+
+func (m *Model) startEditingNewVariable() {
 	m.editing = true
 	m.textInput.Focus()
 	m.editingField = editHeader
 	m.textInput.SetValue("")
+	m.editingKey = ""
 	m.message = "Enter variable name:"
 }
 
@@ -881,6 +918,16 @@ func (m Model) viewResponse() string {
 	return s.String()
 }
 
+// Helper function to get sorted variable keys
+func getSortedVariableKeys(variables map[string]string) []string {
+	keys := make([]string, 0, len(variables))
+	for k := range variables {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func (m Model) viewVariables() string {
 	var s strings.Builder
 
@@ -888,15 +935,24 @@ func (m Model) viewVariables() string {
 	s.WriteString("\n\n")
 
 	if len(m.collection.Variables) == 0 {
-		s.WriteString(dimStyle.Render("No variables set. Press 'enter' to add one."))
+		s.WriteString(dimStyle.Render("No variables set. Press 'n' or 'enter' to add one."))
 	} else {
-		for k, v := range m.collection.Variables {
-			s.WriteString(fmt.Sprintf("%s = %s\n", k, v))
+		varKeys := getSortedVariableKeys(m.collection.Variables)
+		for i, key := range varKeys {
+			value := m.collection.Variables[key]
+			line := fmt.Sprintf("%s = %s", key, value)
+
+			if i == m.cursor {
+				s.WriteString(selectedStyle.Render("> " + line))
+			} else {
+				s.WriteString("  " + line)
+			}
+			s.WriteString("\n")
 		}
 	}
 
-	s.WriteString("\n\n")
-	s.WriteString(dimStyle.Render("enter: add variable | esc: back"))
+	s.WriteString("\n")
+	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: edit | n: new | d: delete | esc: back"))
 	s.WriteString("\n")
 
 	if m.editing {
@@ -952,6 +1008,13 @@ func (m Model) viewHelp() string {
 	s.WriteString("  enter - Edit selected field\n")
 	s.WriteString("  esc - Back to request detail\n\n")
 
+	s.WriteString("Variables View:\n")
+	s.WriteString("  ↑/↓ or j/k - Navigate variables\n")
+	s.WriteString("  enter - Edit selected variable\n")
+	s.WriteString("  n - Create new variable\n")
+	s.WriteString("  d - Delete selected variable\n")
+	s.WriteString("  esc - Back to main\n\n")
+
 	s.WriteString("Environment Management:\n")
 	s.WriteString("  Environments List:\n")
 	s.WriteString("    enter - Select/create environment\n")
@@ -963,7 +1026,7 @@ func (m Model) viewHelp() string {
 	s.WriteString("    s - Save environment\n")
 	s.WriteString("    d - Delete environment\n\n")
 
-	s.WriteString("Variables:\n")
+	s.WriteString("Variables Usage:\n")
 	s.WriteString("  Use {{variable_name}} in requests\n")
 	s.WriteString("  Environment variables override collection variables\n")
 	s.WriteString("  Variables are injected before execution\n\n")
