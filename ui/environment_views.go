@@ -23,6 +23,7 @@ func (m Model) viewEnvironments() string {
 
 	if len(m.environments) == 0 {
 		s.WriteString(dimStyle.Render("No environments yet."))
+		s.WriteString("\n")
 	} else {
 		activeEnv := ""
 		if m.viewingCollectionEnv {
@@ -32,24 +33,28 @@ func (m Model) viewEnvironments() string {
 		}
 
 		for i, envName := range m.environments {
-			cursor := " "
-			if i == m.cursor {
-				cursor = ">"
-			}
+			var line string
 			if envName == activeEnv {
-				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s (active)\n", cursor, envName)))
-			} else if i == m.cursor {
-				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s\n", cursor, envName)))
+				line = fmt.Sprintf("%s (active)", envName)
 			} else {
-				s.WriteString(fmt.Sprintf("%s %s\n", cursor, envName))
+				line = envName
 			}
+
+			if i == m.cursor && !m.envListActionFocus {
+				s.WriteString(selectedStyle.Render("> " + line))
+			} else if i == m.cursor {
+				s.WriteString("  " + line + " ←")
+			} else {
+				s.WriteString("  " + line)
+			}
+			s.WriteString("\n")
 		}
 	}
 
 	s.WriteString("\n")
 
 	// Action menu as a selectable list
-	s.WriteString("Actions:\n")
+	s.WriteString("\nActions:\n")
 	actions := []string{
 		"View Details",
 		"Activate Environment",
@@ -59,17 +64,15 @@ func (m Model) viewEnvironments() string {
 	}
 
 	for i, action := range actions {
-		cursor := "  "
-		if i == m.envListActionCursor {
-			cursor = "> "
-			s.WriteString(selectedStyle.Render(cursor + action) + "\n")
+		if i == m.envListActionCursor && m.envListActionFocus {
+			s.WriteString(selectedStyle.Render("> " + action) + "\n")
 		} else {
-			s.WriteString(cursor + action + "\n")
+			s.WriteString("  " + action + "\n")
 		}
 	}
 
 	s.WriteString("\n")
-	s.WriteString(dimStyle.Render("↑/↓: navigate environments | ←/→: navigate actions | enter: select action | esc: back"))
+	s.WriteString(dimStyle.Render("↑/↓: navigate | tab: switch section | enter: select | esc: back"))
 	s.WriteString("\n")
 
 	if m.editing {
