@@ -39,22 +39,38 @@ func (m Model) viewMain() string {
 	}
 	s.WriteString("\n")
 
-	s.WriteString("Commands:\n")
-	s.WriteString("  i - Import OpenAPI YAML\n")
-	s.WriteString("  r - View Requests\n")
-	s.WriteString("  v - Manage Variables\n")
-	s.WriteString("  g - Manage Global Variables\n")
-	s.WriteString("  e - Manage Environments\n")
-	s.WriteString("  s - Save Collection (to ~/.curlman/)\n")
-	s.WriteString("  l - Load Collection (from ~/.curlman/)\n")
-	s.WriteString("  ? - Help\n")
-	s.WriteString("  q - Quit\n\n")
+	// Menu items as a selectable list
+	menuItems := []string{
+		"Import OpenAPI YAML",
+		"View Requests",
+		"Manage Variables",
+		"Manage Global Variables",
+		"Manage Environments",
+		"Save Collection",
+		"Load Collection",
+		"Help",
+		"Quit",
+	}
+
+	for i, item := range menuItems {
+		cursor := "  "
+		if i == m.mainMenuCursor {
+			cursor = "> "
+			s.WriteString(selectedStyle.Render(cursor + item) + "\n")
+		} else {
+			s.WriteString(cursor + item + "\n")
+		}
+	}
+
+	s.WriteString("\n")
+	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | q: quit"))
+	s.WriteString("\n")
 
 	if m.editing {
-		s.WriteString(m.message + "\n")
+		s.WriteString("\n" + m.message + "\n")
 		s.WriteString(m.textInput.View() + "\n")
 	} else if m.message != "" {
-		s.WriteString(successStyle.Render(m.message) + "\n")
+		s.WriteString("\n" + successStyle.Render(m.message) + "\n")
 	}
 
 	return s.String()
@@ -67,21 +83,33 @@ func (m Model) viewRequestList() string {
 	s.WriteString("\n\n")
 
 	if len(m.collection.Requests) == 0 {
-		s.WriteString(dimStyle.Render("No requests yet. Press 'n' to create one."))
+		s.WriteString(dimStyle.Render("No requests yet."))
+		s.WriteString("\n\n")
+		// Show "Create New" option
+		cursor := "> "
+		s.WriteString(selectedStyle.Render(cursor + "[Create New Request]") + "\n")
 	} else {
 		for i, req := range m.collection.Requests {
-			cursor := " "
+			cursor := "  "
 			if i == m.cursor {
-				cursor = ">"
-				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s [%s] %s\n", cursor, req.Method, req.Name)))
+				cursor = "> "
+				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s[%s] %s\n", cursor, req.Method, req.Name)))
 			} else {
-				s.WriteString(fmt.Sprintf("%s [%s] %s\n", cursor, req.Method, req.Name))
+				s.WriteString(fmt.Sprintf("%s[%s] %s\n", cursor, req.Method, req.Name))
 			}
+		}
+		// Add "Create New" option at the end
+		cursor := "  "
+		if m.cursor == len(m.collection.Requests) {
+			cursor = "> "
+			s.WriteString(selectedStyle.Render(cursor + "[Create New Request]") + "\n")
+		} else {
+			s.WriteString(cursor + "[Create New Request]\n")
 		}
 	}
 
 	s.WriteString("\n")
-	s.WriteString(dimStyle.Render("n: new | enter: select | d: delete | esc: back"))
+	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | d: delete | esc: back"))
 	s.WriteString("\n")
 
 	if m.message != "" {
@@ -130,7 +158,29 @@ func (m Model) viewRequestDetail() string {
 		s.WriteString(req.Body + "\n\n")
 	}
 
-	s.WriteString(dimStyle.Render("enter: execute | e: edit | h: headers | p: query params | c: clone | x: export curl | esc: back"))
+	// Action menu as a selectable list
+	s.WriteString("Actions:\n")
+	actions := []string{
+		"Execute Request",
+		"Edit Request",
+		"Manage Headers",
+		"Manage Query Params",
+		"Clone Request",
+		"Export to cURL",
+	}
+
+	for i, action := range actions {
+		cursor := "  "
+		if i == m.detailActionCursor {
+			cursor = "> "
+			s.WriteString(selectedStyle.Render(cursor + action) + "\n")
+		} else {
+			s.WriteString(cursor + action + "\n")
+		}
+	}
+
+	s.WriteString("\n")
+	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | esc: back"))
 	s.WriteString("\n")
 
 	if m.message != "" {
