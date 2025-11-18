@@ -31,6 +31,7 @@ const (
 	viewEnvironmentVariables
 	viewGlobalVariables
 	viewGlobalVariableDetail
+	viewDeleteGlobalVarConfirmation
 )
 
 type editField int
@@ -77,6 +78,7 @@ type Model struct {
 	mainMenuCursor       int  // cursor for main menu list
 	detailActionCursor   int  // cursor for detail view actions
 	envListActionCursor  int  // cursor for environment list actions menu
+	deleteConfirmKey     string // key of global variable pending deletion
 }
 
 func NewModel() Model {
@@ -308,21 +310,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == viewGlobalVariables && len(m.globalConfig.Variables) > 0 {
 				varKeys := getSortedVariableKeys(m.globalConfig.Variables)
 				if m.cursor >= 0 && m.cursor < len(varKeys) {
-					keyToDelete := varKeys[m.cursor]
-					err := m.variableService.DeleteGlobalVariable(keyToDelete)
-					if err != nil {
-						m.message = fmt.Sprintf("Error: %s", err)
-					} else {
-						m.message = fmt.Sprintf("Global variable '%s' deleted", keyToDelete)
-						if m.cursor >= len(m.globalConfig.Variables) && m.cursor > 0 {
-							m.cursor--
-						}
-					}
+					m.deleteConfirmKey = varKeys[m.cursor]
+					m.currentView = viewDeleteGlobalVarConfirmation
+					m.message = ""
 				}
 				return m, nil
 			}
 
+		case "y":
+			if m.currentView == viewDeleteGlobalVarConfirmation && m.deleteConfirmKey != "" {
+				keyToDelete := m.deleteConfirmKey
+				err := m.variableService.DeleteGlobalVariable(keyToDelete)
+				if err != nil {
+					m.message = fmt.Sprintf("Error: %s", err)
+				} else {
+					m.message = fmt.Sprintf("Global variable '%s' deleted", keyToDelete)
+					// Adjust cursor if needed
+					if m.cursor >= len(m.globalConfig.Variables) && m.cursor > 0 {
+						m.cursor--
+					}
+				}
+				m.deleteConfirmKey = ""
+				m.editingKey = ""
+				m.currentView = viewGlobalVariables
+				return m, nil
+			}
+
 		case "n":
+			if m.currentView == viewDeleteGlobalVarConfirmation {
+				m.deleteConfirmKey = ""
+				m.currentView = viewGlobalVariables
+				m.message = "Deletion cancelled"
+				return m, nil
+			}
 			if m.currentView == viewVariables {
 				m.startEditingNewVariable()
 				return m, nil
@@ -368,6 +388,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = viewGlobalVariables
 				m.detailActionCursor = 0
 				m.editingKey = ""
+				return m, nil
+			}
+			if m.currentView == viewDeleteGlobalVarConfirmation {
+				m.deleteConfirmKey = ""
+				m.currentView = viewGlobalVariables
+				m.message = "Deletion cancelled"
 				return m, nil
 			}
 		}
@@ -716,16 +742,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			}
 		case 2: // Delete Variable
 			if m.editingKey != "" {
-				keyToDelete := m.editingKey
-				err := m.variableService.DeleteGlobalVariable(keyToDelete)
-				if err != nil {
-					m.message = fmt.Sprintf("Error: %s", err)
-				} else {
-					m.message = fmt.Sprintf("Global variable '%s' deleted", keyToDelete)
-					m.editingKey = ""
-					m.currentView = viewGlobalVariables
-					m.cursor = 0
-				}
+				m.deleteConfirmKey = m.editingKey
+				m.currentView = viewDeleteGlobalVarConfirmation
+				m.message = ""
 			}
 		}
 	}
@@ -1097,6 +1116,8 @@ func (m Model) View() string {
 		return m.viewGlobalVariables()
 	case viewGlobalVariableDetail:
 		return m.viewGlobalVariableDetail()
+	case viewDeleteGlobalVarConfirmation:
+		return m.viewDeleteGlobalVarConfirmation()
 	}
 
 	return ""
@@ -1170,4 +1191,27 @@ func (m *Model) startEditingNewGlobalVariable() {
 	m.textInput.SetValue("")
 	m.editingKey = ""
 	m.message = "Enter global variable name:"
+}
+
+func (m Model) viewDeleteGlobalVarConfirmation() string {
+	s := titleStyle.Render("Delete Global Variable")
+	s += "\n\n"
+
+	warningStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("196")).
+		Bold(true)
+
+	s += warningStyle.Render("Are you sure you want to delete this variable?")
+	s += "\n\n"
+
+	// Show the variable being deleted
+	s += fmt.Sprintf("  Variable: %s\n", selectedStyle.Render(m.deleteConfirmKey))
+	if value, ok := m.globalConfig.Variables[m.deleteConfirmKey]; ok {
+		s += fmt.Sprintf("  Value: %s\n", dimStyle.Render(value))
+	}
+
+	s += "\n"
+	s += dimStyle.Render("Press 'y' to confirm, 'n' or 'esc' to cancel")
+
+	return s
 }
