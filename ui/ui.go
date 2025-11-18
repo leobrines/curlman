@@ -232,14 +232,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "tab":
-			// Switch focus between list and actions menu (only for environments, not variables)
-			if m.currentView == viewEnvironments {
-				m.envListActionFocus = !m.envListActionFocus
-				if m.envListActionFocus {
-					m.envListActionCursor = 0
-				}
-				return m, nil
-			}
+			// Tab switching disabled - use Enter to access action menu
 
 		case "enter":
 			return m.handleEnter()
@@ -440,7 +433,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == viewEnvironmentDetail || m.currentView == viewEnvironmentVariables {
 				m.currentView = viewEnvironments
 				m.detailActionCursor = 0
-				m.envListActionFocus = true
+				m.envListActionFocus = false
 				m.envListActionCursor = 0
 				return m, nil
 			}
@@ -484,7 +477,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.environments = envs
 			m.currentView = viewEnvironments
 			m.cursor = 0
-			m.envListActionFocus = true
+			m.envListActionFocus = false
 			m.envListActionCursor = 0
 		case 5: // Save Collection
 			m.message = "Enter filename to save:"
@@ -706,32 +699,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 				}
 			}
 		} else {
-			// When focused on environments list, view details of selected environment
-			if len(m.environments) > 0 && m.cursor < len(m.environments) {
-				envName := m.environments[m.cursor]
-				if m.viewingCollectionEnv {
-					collEnv := m.collection.GetCollectionEnvironment(envName)
-					if collEnv == nil {
-						m.message = fmt.Sprintf("Error loading collection environment: %s", envName)
-						return m, nil
-					}
-					m.currentCollectionEnv = collEnv
-					m.currentEnv = nil
-				} else {
-					env, err := m.environmentService.GetGlobalEnvironment(envName)
-					if err != nil {
-						m.message = fmt.Sprintf("Error loading environment: %s", err)
-						return m, nil
-					}
-					m.currentEnv = env
-					m.currentCollectionEnv = nil
-				}
-				m.selectedEnvIdx = m.cursor
-				m.currentView = viewEnvironmentDetail
-				m.detailActionCursor = 0
-			} else {
-				m.message = "No environment selected"
-			}
+			// If focused on environments list, switch to action menu
+			m.envListActionFocus = true
+			m.envListActionCursor = 0
 		}
 	case viewEnvironmentDetail:
 		// Handle environment detail actions
