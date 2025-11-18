@@ -82,7 +82,7 @@ A powerful, terminal-based alternative to Postman built with Go. CurlMan allows 
   - Complete header and body inclusion
 
 - **Collection Persistence**:
-  - Save and load collections as JSON files
+  - Save collections as JSON files
   - Auto-storage in `~/.curlman/` directory
   - Beautiful JSON formatting with indentation
 
@@ -122,7 +122,6 @@ Run the application:
 - `g` - Manage global variables
 - `e` - Manage environments (toggle between global/collection with `t`)
 - `s` - Save collection to JSON (saved to `~/.curlman/`)
-- `l` - Load collection from JSON (loaded from `~/.curlman/`)
 - `?` - Show help
 - `q` - Quit
 
@@ -140,7 +139,7 @@ CurlMan automatically creates and uses `~/.curlman/` as the storage directory fo
     └── production.json
 ```
 
-When you save or load a collection using just a filename (e.g., `my-collection.json`), it will be saved to or loaded from this directory. You can still use absolute paths if you need to save/load from a different location.
+When you save a collection using just a filename (e.g., `my-collection.json`), it will be saved to this directory. You can still use absolute paths if you need to save to a different location.
 
 **Storage Locations**:
 - **Collections**: Saved as individual JSON files in `~/.curlman/`
@@ -321,7 +320,7 @@ Environments allow you to maintain different sets of variables for different con
 
 2. **Share the JSON file**:
    - The collection file includes all requests and collection environments
-   - Team members can load it (`l`) and immediately have the same setup
+   - Team members can import it and immediately have the same setup
 
 3. **Use global environments for personal settings**:
    - Each team member can create their own global environments

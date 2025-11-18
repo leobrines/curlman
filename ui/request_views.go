@@ -47,7 +47,6 @@ func (m Model) viewMain() string {
 		"Manage Global Variables",
 		"Manage Environments",
 		"Save Collection",
-		"Load Collection",
 		"Help",
 		"Quit",
 	}

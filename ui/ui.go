@@ -208,7 +208,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			switch m.currentView {
 			case viewMain:
-				if m.mainMenuCursor < 8 { // 9 menu items (0-8)
+				if m.mainMenuCursor < 7 { // 8 menu items (0-7)
 					m.mainMenuCursor++
 				}
 			case viewRequestDetail:
@@ -413,15 +413,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.textInput.Focus()
 			m.editing = true
 			m.editingField = editPath
-		case 6: // Load Collection
-			m.message = "Enter filename to load:"
-			m.textInput.SetValue("collection.json")
-			m.textInput.Focus()
-			m.editing = true
-			m.editingField = editURL
-		case 7: // Help
+		case 6: // Help
 			m.currentView = viewHelp
-		case 8: // Quit
+		case 7: // Quit
 			return m, tea.Quit
 		}
 	case viewRequestList:
@@ -835,34 +829,6 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.message = fmt.Sprintf("Error saving: %s", err)
 				} else {
 					m.message = fmt.Sprintf("Collection saved to %s", fullPath)
-				}
-			} else if m.editingField == editURL { // Load collection
-				collection, err := m.collectionService.LoadCollection(value)
-				if err != nil {
-					m.message = fmt.Sprintf("Error loading: %s", err)
-				} else {
-					m.collection = collection
-					// Initialize EnvironmentVars if nil
-					if m.collection.EnvironmentVars == nil {
-						m.collection.EnvironmentVars = make(map[string]string)
-					}
-					// Load active global environment if set
-					if m.collection.ActiveEnvironment != "" {
-						err := m.environmentService.ActivateGlobalEnvironment(m.collection, m.collection.ActiveEnvironment)
-						if err != nil {
-							// Silently ignore if environment doesn't exist
-							m.collection.ActiveEnvironment = ""
-						}
-					}
-					// Load active collection environment if set
-					if m.collection.ActiveCollectionEnv != "" {
-						err := m.environmentService.ActivateCollectionEnvironment(m.collection, m.collection.ActiveCollectionEnv)
-						if err != nil {
-							// Silently ignore if environment doesn't exist
-							m.collection.ActiveCollectionEnv = ""
-						}
-					}
-					m.message = fmt.Sprintf("Loaded collection: %s", collection.Name)
 				}
 			}
 		} else if m.currentView == viewRequestEdit && m.selectedRequest >= 0 {
