@@ -17,8 +17,8 @@ GOMOD=$(GOCMD) mod
 # Main package path
 MAIN_PATH=.
 
-# Install location
-INSTALL_PATH=/usr/local/bin
+# Install location (user's local bin directory)
+INSTALL_PATH=$(HOME)/bin
 
 ## deps: Download and install dependencies
 deps:
@@ -33,15 +33,17 @@ build: deps
 	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
-## install: Install the application to system PATH
+## install: Install the application to user's local bin directory
 install: build
 	@echo "Installing $(BINARY_NAME) to $(INSTALL_PATH)..."
-	@sudo cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
-	@sudo chmod +x $(INSTALL_PATH)/$(BINARY_NAME)
+	@mkdir -p $(INSTALL_PATH)
+	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
+	@chmod +x $(INSTALL_PATH)/$(BINARY_NAME)
 	@echo "Installation complete! Run '$(BINARY_NAME)' to start."
+	@echo "Note: Make sure $(INSTALL_PATH) is in your PATH environment variable."
 
-## uninstall: Remove the application from system PATH
+## uninstall: Remove the application from user's local bin directory
 uninstall:
 	@echo "Uninstalling $(BINARY_NAME)..."
-	@sudo rm -f $(INSTALL_PATH)/$(BINARY_NAME)
+	@rm -f $(INSTALL_PATH)/$(BINARY_NAME)
 	@echo "Uninstalled successfully."
