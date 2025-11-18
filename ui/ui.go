@@ -45,9 +45,17 @@ const (
 	editBody
 )
 
+// Message types for async operations
+type collectionsLoadedMsg struct {
+	collections []*models.Collection
+	names       []string
+	err         error
+}
+
 type Model struct {
 	// Data
 	collection            *models.Collection
+	availableCollections  []string // List of available collection filenames
 	response              *executor.Response
 	environments          []string
 	currentEnv            *environment.Environment
@@ -119,7 +127,37 @@ func NewModel() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	// Load all collections at startup
+	return func() tea.Msg {
+		collections, err := m.collectionService.ListCollections()
+		if err != nil {
+			return collectionsLoadedMsg{err: err}
+		}
+
+		if len(collections) == 0 {
+			return collectionsLoadedMsg{collections: nil, names: nil}
+		}
+
+		// Load all available collections
+		var loadedCollections []*models.Collection
+		var loadedNames []string
+		for _, name := range collections {
+			// Skip global.json as it's not a collection
+			if name == "global.json" {
+				continue
+			}
+			collection, err := m.collectionService.LoadCollection(name)
+			if err == nil {
+				loadedCollections = append(loadedCollections, collection)
+				loadedNames = append(loadedNames, name)
+			}
+		}
+
+		return collectionsLoadedMsg{
+			collections: loadedCollections,
+			names:       loadedNames,
+		}
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -127,6 +165,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case collectionsLoadedMsg:
+		if msg.err != nil {
+			m.message = fmt.Sprintf("Error loading collections: %s", msg.err)
+			return m, nil
+		}
+
+		// Store available collection names
+		m.availableCollections = msg.names
+
+		if len(msg.collections) > 0 {
+			// Load the first collection
+			m.collection = msg.collections[0]
+
+			// Initialize runtime maps if needed
+			if m.collection.EnvironmentVars == nil {
+				m.collection.EnvironmentVars = make(map[string]string)
+			}
+			if m.collection.CollectionEnvVars == nil {
+				m.collection.CollectionEnvVars = make(map[string]string)
+			}
+
+			// Restore active global environment
+			if m.collection.ActiveEnvironment != "" {
+				m.environmentService.ActivateGlobalEnvironment(m.collection, m.collection.ActiveEnvironment)
+			}
+
+			// Restore active collection environment
+			if m.collection.ActiveCollectionEnv != "" {
+				m.environmentService.ActivateCollectionEnvironment(m.collection, m.collection.ActiveCollectionEnv)
+			}
+
+			m.message = fmt.Sprintf("Loaded collection: %s (%d available)", m.collection.Name, len(msg.collections))
+		} else {
+			m.message = "No collections found. Import an OpenAPI file to get started."
+		}
 		return m, nil
 
 	case tea.KeyMsg:
