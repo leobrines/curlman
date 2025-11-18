@@ -217,3 +217,73 @@ func (s *CollectionService) GetCollectionStats(collection *models.Collection) ma
 		"active_collection_env":   collection.ActiveCollectionEnv,
 	}
 }
+
+// DeleteCollection deletes a collection file from storage
+func (s *CollectionService) DeleteCollection(fileName string) error {
+	if fileName == "" {
+		return fmt.Errorf("file name cannot be empty")
+	}
+
+	// Ensure .json extension
+	if !strings.HasSuffix(fileName, ".json") {
+		fileName += ".json"
+	}
+
+	// Get storage directory
+	storageDir, err := storage.GetStorageDir()
+	if err != nil {
+		return fmt.Errorf("failed to get storage directory: %w", err)
+	}
+
+	// Create full path
+	fullPath := filepath.Join(storageDir, fileName)
+
+	// Check if file exists
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return fmt.Errorf("collection file does not exist: %s", fileName)
+	}
+
+	// Delete the file
+	err = os.Remove(fullPath)
+	if err != nil {
+		return fmt.Errorf("failed to delete collection: %w", err)
+	}
+
+	return nil
+}
+
+// RenameCollection renames a collection (updates name and re-saves)
+func (s *CollectionService) RenameCollection(collection *models.Collection, oldFileName, newName string) (string, error) {
+	if collection == nil {
+		return "", fmt.Errorf("collection cannot be nil")
+	}
+	if newName == "" {
+		return "", fmt.Errorf("new name cannot be empty")
+	}
+
+	// Update collection name
+	collection.Name = newName
+
+	// Generate new filename from new name
+	newFileName := sanitizeFileName(newName)
+	if newFileName == "" {
+		newFileName = "collection"
+	}
+
+	// Save with new filename
+	newPath, err := s.SaveCollection(collection, newFileName)
+	if err != nil {
+		return "", fmt.Errorf("failed to save renamed collection: %w", err)
+	}
+
+	// Delete old file if different
+	if !strings.HasSuffix(oldFileName, ".json") {
+		oldFileName += ".json"
+	}
+	newFileNameWithExt := newFileName + ".json"
+	if oldFileName != newFileNameWithExt {
+		s.DeleteCollection(oldFileName) // Ignore error, old file might not exist
+	}
+
+	return newPath, nil
+}
