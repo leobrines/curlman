@@ -1,7 +1,7 @@
 package main
 
 import (
-	"curlman/ui"
+	"github.com/leobrines/curlman/ui"
 	"fmt"
 	"os"
 

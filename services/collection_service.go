@@ -1,9 +1,9 @@
 package services
 
 import (
-	"curlman/models"
-	"curlman/openapi"
-	"curlman/storage"
+	"github.com/leobrines/curlman/models"
+	"github.com/leobrines/curlman/openapi"
+	"github.com/leobrines/curlman/storage"
 	"fmt"
 	"os"
 	"path/filepath"

@@ -1,8 +1,8 @@
 package services
 
 import (
-	"curlman/environment"
-	"curlman/models"
+	"github.com/leobrines/curlman/environment"
+	"github.com/leobrines/curlman/models"
 	"fmt"
 )
 

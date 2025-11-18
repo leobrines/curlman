@@ -1,7 +1,7 @@
 package environment
 
 import (
-	"curlman/storage"
+	"github.com/leobrines/curlman/storage"
 	"encoding/json"
 	"fmt"
 	"os"

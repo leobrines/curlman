@@ -1,7 +1,7 @@
 package exporter
 
 import (
-	"curlman/models"
+	"github.com/leobrines/curlman/models"
 	"fmt"
 	"strings"
 )

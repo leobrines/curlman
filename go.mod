@@ -1,4 +1,4 @@
-module curlman
+module github.com/leobrines/curlman
 
 go 1.24.7
 

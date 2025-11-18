@@ -2,8 +2,8 @@ package openapi
 
 import (
 	"context"
-	"curlman/models"
-	"curlman/storage"
+	"github.com/leobrines/curlman/models"
+	"github.com/leobrines/curlman/storage"
 	"fmt"
 	"os"
 	"path/filepath"
