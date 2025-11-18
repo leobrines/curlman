@@ -42,7 +42,6 @@ func (m Model) viewHelp() string {
 	s.WriteString("  esc - Back to request detail\n\n")
 
 	s.WriteString("Response View:\n")
-	s.WriteString("  ← → - Change view mode (All, Body, Headers, Status)\n")
 	s.WriteString("  s - Save response body to file\n")
 	s.WriteString("  esc - Back to request detail\n\n")
 

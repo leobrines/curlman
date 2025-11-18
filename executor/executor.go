@@ -77,7 +77,7 @@ func Execute(request *models.Request, variables map[string]string) *Response {
 	return response
 }
 
-// FormatResponse formats the response for display (shows all information)
+// FormatResponse formats the response for display
 func FormatResponse(resp *Response) string {
 	if resp.Error != nil {
 		return fmt.Sprintf("Error: %s\nDuration: %s", resp.Error, resp.Duration)
@@ -96,48 +96,6 @@ func FormatResponse(resp *Response) string {
 
 	result.WriteString("\nBody:\n")
 	result.WriteString(resp.Body)
-
-	return result.String()
-}
-
-// FormatResponseBodyOnly formats only the response body
-func FormatResponseBodyOnly(resp *Response) string {
-	if resp.Error != nil {
-		return fmt.Sprintf("Error: %s\nDuration: %s", resp.Error, resp.Duration)
-	}
-
-	return resp.Body
-}
-
-// FormatResponseHeadersOnly formats only the response headers and status
-func FormatResponseHeadersOnly(resp *Response) string {
-	if resp.Error != nil {
-		return fmt.Sprintf("Error: %s\nDuration: %s", resp.Error, resp.Duration)
-	}
-
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Status: %s\n", resp.Status))
-	result.WriteString(fmt.Sprintf("Duration: %s\n\n", resp.Duration))
-
-	result.WriteString("Headers:\n")
-	for key, values := range resp.Headers {
-		for _, value := range values {
-			result.WriteString(fmt.Sprintf("  %s: %s\n", key, value))
-		}
-	}
-
-	return result.String()
-}
-
-// FormatResponseStatusOnly formats only the response status and duration
-func FormatResponseStatusOnly(resp *Response) string {
-	if resp.Error != nil {
-		return fmt.Sprintf("Error: %s\nDuration: %s", resp.Error, resp.Duration)
-	}
-
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Status: %s\n", resp.Status))
-	result.WriteString(fmt.Sprintf("Duration: %s\n", resp.Duration))
 
 	return result.String()
 }

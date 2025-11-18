@@ -44,15 +44,6 @@ const (
 	editBody
 )
 
-type printMode int
-
-const (
-	printAll printMode = iota
-	printBodyOnly
-	printHeadersOnly
-	printStatusOnly
-)
-
 type Model struct {
 	// Data
 	collection            *models.Collection
@@ -82,9 +73,8 @@ type Model struct {
 	height               int
 	selectedEnvIdx       int
 	viewingCollectionEnv bool // true = collection envs, false = global envs
-	currentPrintMode     printMode
-	mainMenuCursor       int // cursor for main menu list
-	detailActionCursor   int // cursor for detail view actions
+	mainMenuCursor       int  // cursor for main menu list
+	detailActionCursor   int  // cursor for detail view actions
 }
 
 func NewModel() Model {
@@ -121,9 +111,8 @@ func NewModel() Model {
 		environmentService: environmentService,
 
 		// UI State
-		currentView:      viewMain,
-		textInput:        ti,
-		currentPrintMode: printAll,
+		currentView: viewMain,
+		textInput:   ti,
 	}
 }
 
@@ -258,28 +247,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 			return m, nil
-
-		case "left":
-			if m.currentView == viewResponse {
-				// Cycle to previous print mode
-				if m.currentPrintMode > 0 {
-					m.currentPrintMode--
-				} else {
-					m.currentPrintMode = printStatusOnly
-				}
-				return m, nil
-			}
-
-		case "right":
-			if m.currentView == viewResponse {
-				// Cycle to next print mode
-				if m.currentPrintMode < printStatusOnly {
-					m.currentPrintMode++
-				} else {
-					m.currentPrintMode = printAll
-				}
-				return m, nil
-			}
 
 		case "d":
 			if m.currentView == viewRequestList && m.cursor < len(m.collection.Requests) && len(m.collection.Requests) > 0 {
