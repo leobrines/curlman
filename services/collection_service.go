@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -32,22 +33,55 @@ func (s *CollectionService) CreateEmptyCollection() *models.Collection {
 	}
 }
 
-// ImportFromOpenAPI imports a collection from an OpenAPI file
-func (s *CollectionService) ImportFromOpenAPI(filePath string) (*models.Collection, error) {
+// ImportFromOpenAPI imports a collection from an OpenAPI file and auto-saves it
+func (s *CollectionService) ImportFromOpenAPI(filePath string) (*models.Collection, string, error) {
 	if filePath == "" {
-		return nil, fmt.Errorf("file path cannot be empty")
+		return nil, "", fmt.Errorf("file path cannot be empty")
 	}
 
 	collection, err := openapi.ImportFromFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to import OpenAPI file: %w", err)
+		return nil, "", fmt.Errorf("failed to import OpenAPI file: %w", err)
 	}
 
 	if len(collection.Requests) == 0 {
-		return nil, fmt.Errorf("imported collection contains no requests")
+		return nil, "", fmt.Errorf("imported collection contains no requests")
 	}
 
-	return collection, nil
+	// Auto-save the collection with the OpenAPI title as filename
+	fileName := sanitizeFileName(collection.Name)
+	if fileName == "" {
+		fileName = "imported-collection"
+	}
+
+	savedPath, err := s.SaveCollection(collection, fileName)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to auto-save collection: %w", err)
+	}
+
+	return collection, savedPath, nil
+}
+
+// sanitizeFileName converts a string into a valid filename
+func sanitizeFileName(name string) string {
+	// Replace spaces with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+
+	// Remove or replace invalid filename characters
+	reg := regexp.MustCompile(`[<>:"/\\|?*]`)
+	name = reg.ReplaceAllString(name, "")
+
+	// Convert to lowercase for consistency
+	name = strings.ToLower(name)
+
+	// Remove leading/trailing hyphens and dots
+	name = strings.Trim(name, "-.")
+
+	// Collapse multiple hyphens into one
+	reg = regexp.MustCompile(`-+`)
+	name = reg.ReplaceAllString(name, "-")
+
+	return name
 }
 
 // SaveCollection saves a collection to the storage directory
