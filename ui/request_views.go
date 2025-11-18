@@ -21,7 +21,7 @@ func (m Model) viewMain() string {
 		s.WriteString(successStyle.Render(fmt.Sprintf("Active Global Environment: %s (%d vars)\n",
 			m.collection.ActiveEnvironment, len(m.collection.EnvironmentVars))))
 	} else {
-		s.WriteString(dimStyle.Render("Active Global Environment: None\n"))
+		s.WriteString(dimStyle.Render("Active Global Environment: None") + "\n")
 	}
 
 	// Display active collection environment
@@ -29,13 +29,13 @@ func (m Model) viewMain() string {
 		s.WriteString(successStyle.Render(fmt.Sprintf("Active Collection Environment: %s (%d vars)\n",
 			m.collection.ActiveCollectionEnv, len(m.collection.CollectionEnvVars))))
 	} else {
-		s.WriteString(dimStyle.Render("Active Collection Environment: None\n"))
+		s.WriteString(dimStyle.Render("Active Collection Environment: None") + "\n")
 	}
 
 	// Display storage directory
 	storageDir, err := storage.GetStorageDir()
 	if err == nil {
-		s.WriteString(dimStyle.Render(fmt.Sprintf("Storage: %s\n", storageDir)))
+		s.WriteString(dimStyle.Render(fmt.Sprintf("Storage: %s", storageDir)) + "\n")
 	}
 	s.WriteString("\n")
 
