@@ -30,6 +30,7 @@ const (
 	viewEnvironmentDetail
 	viewEnvironmentVariables
 	viewGlobalVariables
+	viewGlobalVariableDetail
 )
 
 type editField int
@@ -199,6 +200,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.detailActionCursor = maxActions - 1
 				}
+			case viewGlobalVariableDetail:
+				if m.detailActionCursor > 0 {
+					m.detailActionCursor--
+				} else {
+					m.detailActionCursor = 2 // 3 actions (0-2)
+				}
 			case viewRequestList:
 				if m.cursor > 0 {
 					m.cursor--
@@ -230,6 +237,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					maxActions = 5
 				}
 				if m.detailActionCursor < maxActions-1 {
+					m.detailActionCursor++
+				} else {
+					m.detailActionCursor = 0
+				}
+			case viewGlobalVariableDetail:
+				if m.detailActionCursor < 2 { // 3 actions (0-2)
 					m.detailActionCursor++
 				} else {
 					m.detailActionCursor = 0
@@ -369,6 +382,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == viewEnvironmentDetail || m.currentView == viewEnvironmentVariables {
 				m.currentView = viewEnvironments
 				m.detailActionCursor = 0
+				return m, nil
+			}
+			if m.currentView == viewGlobalVariableDetail {
+				m.currentView = viewGlobalVariables
+				m.detailActionCursor = 0
+				m.editingKey = ""
 				return m, nil
 			}
 		}
@@ -584,7 +603,50 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	case viewEnvironmentVariables:
 		m.startEditingEnvironmentVariable()
 	case viewGlobalVariables:
-		m.startEditingGlobalVariable()
+		varKeys := getSortedVariableKeys(m.globalConfig.Variables)
+		if m.cursor < len(varKeys) {
+			// Select existing variable - navigate to detail view
+			m.editingKey = varKeys[m.cursor]
+			m.currentView = viewGlobalVariableDetail
+			m.detailActionCursor = 0
+		} else {
+			// Create new variable
+			m.startEditingNewGlobalVariable()
+		}
+	case viewGlobalVariableDetail:
+		// Handle global variable detail actions
+		switch m.detailActionCursor {
+		case 0: // Edit Value
+			if m.editingKey != "" {
+				value := m.globalConfig.Variables[m.editingKey]
+				m.editing = true
+				m.textInput.Focus()
+				m.editingField = editHeader
+				m.textInput.SetValue(value)
+				m.message = fmt.Sprintf("Editing value for '%s':", m.editingKey)
+			}
+		case 1: // Rename Variable
+			if m.editingKey != "" {
+				m.editing = true
+				m.textInput.Focus()
+				m.editingField = editName
+				m.textInput.SetValue(m.editingKey)
+				m.message = "Enter new variable name:"
+			}
+		case 2: // Delete Variable
+			if m.editingKey != "" {
+				keyToDelete := m.editingKey
+				err := m.variableService.DeleteGlobalVariable(keyToDelete)
+				if err != nil {
+					m.message = fmt.Sprintf("Error: %s", err)
+				} else {
+					m.message = fmt.Sprintf("Global variable '%s' deleted", keyToDelete)
+					m.editingKey = ""
+					m.currentView = viewGlobalVariables
+					m.cursor = 0
+				}
+			}
+		}
 	}
 	return m, nil
 }
@@ -872,6 +934,37 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.editingKey = ""
 			}
+		} else if m.currentView == viewGlobalVariableDetail {
+			if m.editingField == editHeader {
+				// Edit Value action
+				err := m.variableService.SetGlobalVariable(m.editingKey, value)
+				if err != nil {
+					m.message = fmt.Sprintf("Error: %s", err)
+				} else {
+					m.message = fmt.Sprintf("Variable '%s' updated", m.editingKey)
+				}
+			} else if m.editingField == editName {
+				// Rename Variable action
+				oldKey := m.editingKey
+				newKey := value
+				if oldKey != newKey {
+					// Get the old value
+					oldValue := m.globalConfig.Variables[oldKey]
+					// Delete old key and set new key
+					err := m.variableService.DeleteGlobalVariable(oldKey)
+					if err != nil {
+						m.message = fmt.Sprintf("Error: %s", err)
+					} else {
+						err = m.variableService.SetGlobalVariable(newKey, oldValue)
+						if err != nil {
+							m.message = fmt.Sprintf("Error: %s", err)
+						} else {
+							m.editingKey = newKey
+							m.message = fmt.Sprintf("Variable renamed to '%s'", newKey)
+						}
+					}
+				}
+			}
 		} else if m.currentView == viewEnvironmentDetail && m.editingField == editName {
 			// Rename environment
 			if m.viewingCollectionEnv && m.currentCollectionEnv != nil {
@@ -949,6 +1042,8 @@ func (m Model) View() string {
 		return m.viewEnvironmentVariables()
 	case viewGlobalVariables:
 		return m.viewGlobalVariables()
+	case viewGlobalVariableDetail:
+		return m.viewGlobalVariableDetail()
 	}
 
 	return ""
