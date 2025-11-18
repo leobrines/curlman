@@ -105,11 +105,38 @@ func (m Model) viewEnvironmentDetail() string {
 		s.WriteString("\n")
 	}
 
+	// Action menu as a selectable list
+	s.WriteString("Actions:\n")
+	var actions []string
 	if m.viewingCollectionEnv {
-		s.WriteString(dimStyle.Render("a: activate | v: manage variables | e: edit name | d: delete | esc: back"))
+		actions = []string{
+			"Activate Environment",
+			"Manage Variables",
+			"Edit Name",
+			"Delete Environment",
+		}
 	} else {
-		s.WriteString(dimStyle.Render("a: activate | v: manage variables | e: edit name | s: save | d: delete | esc: back"))
+		actions = []string{
+			"Activate Environment",
+			"Manage Variables",
+			"Edit Name",
+			"Save Environment",
+			"Delete Environment",
+		}
 	}
+
+	for i, action := range actions {
+		cursor := "  "
+		if i == m.detailActionCursor {
+			cursor = "> "
+			s.WriteString(selectedStyle.Render(cursor + action) + "\n")
+		} else {
+			s.WriteString(cursor + action + "\n")
+		}
+	}
+
+	s.WriteString("\n")
+	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | esc: back"))
 	s.WriteString("\n")
 
 	if m.editing {
