@@ -86,6 +86,12 @@ type Model struct {
 	envListActionCursor    int  // cursor for environment list actions menu
 	variableActionFocus    bool // true when focused on actions menu in variables view
 	variableActionCursor   int  // cursor for variable actions menu
+
+	// Main menu state
+	hasActiveCollection    bool // true when a collection is loaded and active
+	collectionSelectMode   bool // true when viewing collection selection list
+	collectionCursor       int  // cursor for collection selection list
+	confirmingDelete       bool // true when showing delete confirmation
 }
 
 func NewModel() Model {
@@ -178,29 +184,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.availableCollections = msg.names
 
 		if len(msg.collections) > 0 {
-			// Load the first collection
-			m.collection = msg.collections[0]
-
-			// Initialize runtime maps if needed
-			if m.collection.EnvironmentVars == nil {
-				m.collection.EnvironmentVars = make(map[string]string)
-			}
-			if m.collection.CollectionEnvVars == nil {
-				m.collection.CollectionEnvVars = make(map[string]string)
-			}
-
-			// Restore active global environment
-			if m.collection.ActiveEnvironment != "" {
-				m.environmentService.ActivateGlobalEnvironment(m.collection, m.collection.ActiveEnvironment)
-			}
-
-			// Restore active collection environment
-			if m.collection.ActiveCollectionEnv != "" {
-				m.environmentService.ActivateCollectionEnvironment(m.collection, m.collection.ActiveCollectionEnv)
-			}
-
-			m.message = fmt.Sprintf("Loaded collection: %s (%d available)", m.collection.Name, len(msg.collections))
+			// Don't auto-load first collection, just show available collections
+			m.hasActiveCollection = false
+			m.message = fmt.Sprintf("%d collections available. Select one or import a new OpenAPI file.", len(msg.collections))
 		} else {
+			m.hasActiveCollection = false
 			m.message = "No collections found. Import an OpenAPI file to get started."
 		}
 		return m, nil
@@ -212,11 +200,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "ctrl+c", "q":
-			if m.currentView == viewMain {
+			if m.currentView == viewMain && !m.hasActiveCollection && !m.collectionSelectMode && !m.confirmingDelete && !m.editing {
 				return m, tea.Quit
 			}
-			m.currentView = viewMain
-			m.message = ""
+			if m.currentView != viewMain {
+				m.currentView = viewMain
+				m.message = ""
+			}
 			return m, nil
 
 
@@ -227,6 +217,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInput.Focus()
 				m.editing = true
 				m.editingField = editBody
+				return m, nil
+			}
+
+		case "y":
+			// Confirm delete collection
+			if m.currentView == viewMain && m.confirmingDelete {
+				// Delete the collection
+				err := m.collectionService.DeleteCollection(m.collection.Name + ".json")
+				if err != nil {
+					m.message = fmt.Sprintf("Error deleting collection: %s", err)
+				} else {
+					m.message = fmt.Sprintf("Collection '%s' deleted", m.collection.Name)
+					// Remove from available collections
+					for i, name := range m.availableCollections {
+						if name == m.collection.Name+".json" {
+							m.availableCollections = append(m.availableCollections[:i], m.availableCollections[i+1:]...)
+							break
+						}
+					}
+					// Reset to no active collection
+					m.collection = m.collectionService.CreateEmptyCollection()
+					m.hasActiveCollection = false
+				}
+				m.confirmingDelete = false
+				m.mainMenuCursor = 0
+				return m, nil
+			}
+
+		case "n":
+			// Cancel delete confirmation
+			if m.currentView == viewMain && m.confirmingDelete {
+				m.confirmingDelete = false
+				m.message = "Delete cancelled"
 				return m, nil
 			}
 
@@ -246,8 +269,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			switch m.currentView {
 			case viewMain:
-				if m.mainMenuCursor > 0 {
-					m.mainMenuCursor--
+				if m.confirmingDelete {
+					return m, nil // Don't navigate during confirmation
+				}
+				if m.collectionSelectMode {
+					if m.collectionCursor > 0 {
+						m.collectionCursor--
+					}
+				} else if m.hasActiveCollection {
+					// Collection detail menu: 6 items (0-5)
+					if m.mainMenuCursor > 0 {
+						m.mainMenuCursor--
+					}
+				} else {
+					// Main menu: 6 items (0-5)
+					if m.mainMenuCursor > 0 {
+						m.mainMenuCursor--
+					}
 				}
 			case viewRequestDetail:
 				if m.detailActionCursor > 0 {
@@ -308,8 +346,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			switch m.currentView {
 			case viewMain:
-				if m.mainMenuCursor < 7 { // 8 menu items (0-7)
-					m.mainMenuCursor++
+				if m.confirmingDelete {
+					return m, nil // Don't navigate during confirmation
+				}
+				if m.collectionSelectMode {
+					if m.collectionCursor < len(m.availableCollections)-1 {
+						m.collectionCursor++
+					}
+				} else if m.hasActiveCollection {
+					// Collection detail menu: 6 items (0-5)
+					if m.mainMenuCursor < 5 {
+						m.mainMenuCursor++
+					}
+				} else {
+					// Main menu: 6 items (0-5)
+					if m.mainMenuCursor < 5 {
+						m.mainMenuCursor++
+					}
 				}
 			case viewRequestDetail:
 				if m.detailActionCursor < 5 { // 6 actions (0-5)
@@ -407,6 +460,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "esc", "backspace":
+			if m.currentView == viewMain {
+				if m.confirmingDelete {
+					m.confirmingDelete = false
+					m.message = "Delete cancelled"
+					return m, nil
+				}
+				if m.collectionSelectMode {
+					m.collectionSelectMode = false
+					m.collectionCursor = 0
+					m.message = ""
+					return m, nil
+				}
+				if m.hasActiveCollection {
+					// Go back to main menu (no active collection)
+					m.hasActiveCollection = false
+					m.mainMenuCursor = 0
+					m.message = ""
+					return m, nil
+				}
+				return m, nil
+			}
 			if m.currentView == viewRequestDetail {
 				m.currentView = viewRequestList
 				m.detailActionCursor = 0
@@ -454,48 +528,123 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	switch m.currentView {
 	case viewMain:
-		// Handle main menu selection
-		switch m.mainMenuCursor {
-		case 0: // Import OpenAPI YAML
-			m.message = "Enter OpenAPI file path:"
-			m.textInput.SetValue("")
-			m.textInput.Focus()
-			m.editing = true
-			m.editingField = editName
-		case 1: // View Requests
-			m.currentView = viewRequestList
-			m.cursor = 0
-		case 2: // Manage Variables
-			m.currentView = viewVariables
-			m.cursor = 0
-			m.variableActionFocus = true
-			m.variableActionCursor = 0
-		case 3: // Manage Global Variables
-			m.currentView = viewGlobalVariables
-			m.cursor = 0
-			m.variableActionFocus = true
-			m.variableActionCursor = 0
-		case 4: // Manage Environments
-			m.viewingCollectionEnv = false
-			envs, err := m.environmentService.ListGlobalEnvironments()
-			if err != nil {
-				m.message = fmt.Sprintf("Error loading environments: %s", err)
-				return m, nil
+		// Handle confirmation dialog
+		if m.confirmingDelete {
+			return m, nil // y/n keys handle this
+		}
+
+		// Handle collection selection mode
+		if m.collectionSelectMode {
+			if len(m.availableCollections) > 0 && m.collectionCursor < len(m.availableCollections) {
+				// Load selected collection
+				fileName := m.availableCollections[m.collectionCursor]
+				collection, err := m.collectionService.LoadCollection(fileName)
+				if err != nil {
+					m.message = fmt.Sprintf("Error loading collection: %s", err)
+					return m, nil
+				}
+				m.collection = collection
+
+				// Initialize runtime maps if needed
+				if m.collection.EnvironmentVars == nil {
+					m.collection.EnvironmentVars = make(map[string]string)
+				}
+				if m.collection.CollectionEnvVars == nil {
+					m.collection.CollectionEnvVars = make(map[string]string)
+				}
+
+				// Restore active global environment
+				if m.collection.ActiveEnvironment != "" {
+					m.environmentService.ActivateGlobalEnvironment(m.collection, m.collection.ActiveEnvironment)
+				}
+
+				// Restore active collection environment
+				if m.collection.ActiveCollectionEnv != "" {
+					m.environmentService.ActivateCollectionEnvironment(m.collection, m.collection.ActiveCollectionEnv)
+				}
+
+				m.hasActiveCollection = true
+				m.collectionSelectMode = false
+				m.mainMenuCursor = 0
+				m.message = fmt.Sprintf("Loaded collection: %s", m.collection.Name)
 			}
-			m.environments = envs
-			m.currentView = viewEnvironments
-			m.cursor = 0
-			m.envListActionCursor = 0
-		case 5: // Save Collection
-			m.message = "Enter filename to save:"
-			m.textInput.SetValue("collection.json")
-			m.textInput.Focus()
-			m.editing = true
-			m.editingField = editPath
-		case 6: // Help
-			m.currentView = viewHelp
-		case 7: // Quit
-			return m, tea.Quit
+			return m, nil
+		}
+
+		// Handle main menu based on active collection state
+		if m.hasActiveCollection {
+			// Collection detail menu
+			switch m.mainMenuCursor {
+			case 0: // View Requests
+				m.currentView = viewRequestList
+				m.cursor = 0
+			case 1: // Manage Environments
+				m.viewingCollectionEnv = true
+				m.environments = m.environmentService.ListCollectionEnvironments(m.collection)
+				m.currentView = viewEnvironments
+				m.cursor = 0
+				m.envListActionCursor = 0
+			case 2: // Manage Variables
+				m.currentView = viewVariables
+				m.cursor = 0
+				m.variableActionFocus = true
+				m.variableActionCursor = 0
+			case 3: // Edit Collection Name
+				m.message = "Enter new collection name:"
+				m.textInput.SetValue(m.collection.Name)
+				m.textInput.Focus()
+				m.editing = true
+				m.editingField = editName
+			case 4: // Save Collection
+				fileName := m.collection.Name
+				fullPath, err := m.collectionService.SaveCollection(m.collection, fileName)
+				if err != nil {
+					m.message = fmt.Sprintf("Error saving: %s", err)
+				} else {
+					m.message = fmt.Sprintf("Collection saved to %s", fullPath)
+				}
+			case 5: // Delete Collection
+				m.confirmingDelete = true
+				m.message = fmt.Sprintf("Delete collection '%s'? (y/n)", m.collection.Name)
+			}
+		} else {
+			// Main menu (no active collection)
+			switch m.mainMenuCursor {
+			case 0: // Import OpenAPI YAML
+				m.message = "Enter OpenAPI file path:"
+				m.textInput.SetValue("")
+				m.textInput.Focus()
+				m.editing = true
+				m.editingField = editName
+			case 1: // Select Collection
+				if len(m.availableCollections) == 0 {
+					m.message = "No collections available. Import an OpenAPI file first."
+				} else {
+					m.collectionSelectMode = true
+					m.collectionCursor = 0
+					m.message = ""
+				}
+			case 2: // Manage Global Variables
+				m.currentView = viewGlobalVariables
+				m.cursor = 0
+				m.variableActionFocus = true
+				m.variableActionCursor = 0
+			case 3: // Manage Environments
+				m.viewingCollectionEnv = false
+				envs, err := m.environmentService.ListGlobalEnvironments()
+				if err != nil {
+					m.message = fmt.Sprintf("Error loading environments: %s", err)
+					return m, nil
+				}
+				m.environments = envs
+				m.currentView = viewEnvironments
+				m.cursor = 0
+				m.envListActionCursor = 0
+			case 4: // Help
+				m.currentView = viewHelp
+			case 5: // Quit
+				return m, tea.Quit
+			}
 		}
 	case viewRequestList:
 		if m.cursor < len(m.collection.Requests) {
@@ -917,13 +1066,56 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// Handle different editing contexts
 		if m.currentView == viewMain {
-			if m.editingField == editName { // Import OpenAPI
-				collection, savedPath, err := m.collectionService.ImportFromOpenAPI(value)
-				if err != nil {
-					m.message = fmt.Sprintf("Error importing: %s", err)
+			if m.editingField == editName {
+				if m.hasActiveCollection {
+					// Rename collection
+					oldFileName := m.collection.Name
+					newPath, err := m.collectionService.RenameCollection(m.collection, oldFileName, value)
+					if err != nil {
+						m.message = fmt.Sprintf("Error renaming collection: %s", err)
+					} else {
+						// Update available collections list
+						for i, name := range m.availableCollections {
+							if name == oldFileName+".json" {
+								m.availableCollections[i] = m.collection.Name + ".json"
+								break
+							}
+						}
+						m.message = fmt.Sprintf("Collection renamed to '%s' (saved to %s)", m.collection.Name, newPath)
+					}
 				} else {
-					m.collection = collection
-					m.message = fmt.Sprintf("Imported %d requests from %s (saved to %s)", len(collection.Requests), collection.Name, savedPath)
+					// Import OpenAPI
+					collection, savedPath, err := m.collectionService.ImportFromOpenAPI(value)
+					if err != nil {
+						m.message = fmt.Sprintf("Error importing: %s", err)
+					} else {
+						m.collection = collection
+
+						// Initialize runtime maps if needed
+						if m.collection.EnvironmentVars == nil {
+							m.collection.EnvironmentVars = make(map[string]string)
+						}
+						if m.collection.CollectionEnvVars == nil {
+							m.collection.CollectionEnvVars = make(map[string]string)
+						}
+
+						// Add to available collections
+						fileName := m.collection.Name + ".json"
+						found := false
+						for _, name := range m.availableCollections {
+							if name == fileName {
+								found = true
+								break
+							}
+						}
+						if !found {
+							m.availableCollections = append(m.availableCollections, fileName)
+						}
+
+						m.hasActiveCollection = true
+						m.mainMenuCursor = 0
+						m.message = fmt.Sprintf("Imported %d requests from %s (saved to %s)", len(collection.Requests), collection.Name, savedPath)
+					}
 				}
 			} else if m.editingField == editPath { // Save collection
 				fullPath, err := m.collectionService.SaveCollection(m.collection, value)

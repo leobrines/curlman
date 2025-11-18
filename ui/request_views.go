@@ -9,44 +9,121 @@ import (
 func (m Model) viewMain() string {
 	var s strings.Builder
 
-	s.WriteString(titleStyle.Render("CurlMan - Postman CLI Alternative"))
+	// Handle collection selection mode
+	if m.collectionSelectMode {
+		s.WriteString(titleStyle.Render("Select Collection"))
+		s.WriteString("\n\n")
+
+		if len(m.availableCollections) == 0 {
+			s.WriteString(dimStyle.Render("No collections available."))
+			s.WriteString("\n")
+		} else {
+			for i, name := range m.availableCollections {
+				cursor := "  "
+				// Remove .json extension for display
+				displayName := name
+				if len(name) > 5 && name[len(name)-5:] == ".json" {
+					displayName = name[:len(name)-5]
+				}
+				if i == m.collectionCursor {
+					cursor = "> "
+					s.WriteString(selectedStyle.Render(cursor + displayName) + "\n")
+				} else {
+					s.WriteString(cursor + displayName + "\n")
+				}
+			}
+		}
+
+		s.WriteString("\n")
+		s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | esc: back"))
+		s.WriteString("\n")
+
+		if m.message != "" {
+			s.WriteString("\n" + errorStyle.Render(m.message) + "\n")
+		}
+
+		return s.String()
+	}
+
+	// Handle collection detail view (when collection is active)
+	if m.hasActiveCollection {
+		s.WriteString(titleStyle.Render(m.collection.Name))
+		s.WriteString("\n\n")
+
+		s.WriteString(fmt.Sprintf("Requests: %d\n", len(m.collection.Requests)))
+		s.WriteString(fmt.Sprintf("Variables: %d\n", len(m.collection.Variables)))
+		s.WriteString(fmt.Sprintf("Environments: %d\n", len(m.collection.Environments)))
+
+		// Display active global environment
+		if m.collection.ActiveEnvironment != "" {
+			s.WriteString(successStyle.Render(fmt.Sprintf("Active Global Env: %s (%d vars)\n",
+				m.collection.ActiveEnvironment, len(m.collection.EnvironmentVars))))
+		}
+
+		// Display active collection environment
+		if m.collection.ActiveCollectionEnv != "" {
+			s.WriteString(successStyle.Render(fmt.Sprintf("Active Collection Env: %s (%d vars)\n",
+				m.collection.ActiveCollectionEnv, len(m.collection.CollectionEnvVars))))
+		}
+
+		s.WriteString("\n")
+
+		// Collection detail menu items
+		menuItems := []string{
+			"View Requests",
+			"Manage Environments",
+			"Manage Variables",
+			"Edit Collection Name",
+			"Save Collection",
+			"Delete Collection",
+		}
+
+		for i, item := range menuItems {
+			cursor := "  "
+			if i == m.mainMenuCursor {
+				cursor = "> "
+				s.WriteString(selectedStyle.Render(cursor + item) + "\n")
+			} else {
+				s.WriteString(cursor + item + "\n")
+			}
+		}
+
+		s.WriteString("\n")
+		s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | esc: back to main menu"))
+		s.WriteString("\n")
+
+		if m.confirmingDelete {
+			s.WriteString("\n" + errorStyle.Render(m.message) + "\n")
+		} else if m.editing {
+			s.WriteString("\n" + m.message + "\n")
+			s.WriteString(m.textInput.View() + "\n")
+		} else if m.message != "" {
+			s.WriteString("\n" + successStyle.Render(m.message) + "\n")
+		}
+
+		return s.String()
+	}
+
+	// Main menu (no active collection)
+	s.WriteString(titleStyle.Render("CurlMan - Main Menu"))
 	s.WriteString("\n\n")
-
-	s.WriteString(fmt.Sprintf("Collection: %s\n", m.collection.Name))
-	s.WriteString(fmt.Sprintf("Requests: %d\n", len(m.collection.Requests)))
-	s.WriteString(fmt.Sprintf("Variables: %d\n", len(m.collection.Variables)))
-
-	// Display active global environment
-	if m.collection.ActiveEnvironment != "" {
-		s.WriteString(successStyle.Render(fmt.Sprintf("Active Global Environment: %s (%d vars)\n",
-			m.collection.ActiveEnvironment, len(m.collection.EnvironmentVars))))
-	} else {
-		s.WriteString(dimStyle.Render("Active Global Environment: None") + "\n")
-	}
-
-	// Display active collection environment
-	if m.collection.ActiveCollectionEnv != "" {
-		s.WriteString(successStyle.Render(fmt.Sprintf("Active Collection Environment: %s (%d vars)\n",
-			m.collection.ActiveCollectionEnv, len(m.collection.CollectionEnvVars))))
-	} else {
-		s.WriteString(dimStyle.Render("Active Collection Environment: None") + "\n")
-	}
 
 	// Display storage directory
 	storageDir, err := storage.GetStorageDir()
 	if err == nil {
 		s.WriteString(dimStyle.Render(fmt.Sprintf("Storage: %s", storageDir)) + "\n")
 	}
+
+	// Display available collections count
+	s.WriteString(fmt.Sprintf("Available Collections: %d\n", len(m.availableCollections)))
 	s.WriteString("\n")
 
-	// Menu items as a selectable list
+	// Main menu items
 	menuItems := []string{
 		"Import OpenAPI YAML",
-		"View Requests",
-		"Manage Variables",
+		fmt.Sprintf("Select Collection (%d)", len(m.availableCollections)),
 		"Manage Global Variables",
 		"Manage Environments",
-		"Save Collection",
 		"Help",
 		"Quit",
 	}
