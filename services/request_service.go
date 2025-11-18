@@ -1,9 +1,9 @@
 package services
 
 import (
-	"curlman/executor"
-	"curlman/exporter"
-	"curlman/models"
+	"github.com/leobrines/curlman/executor"
+	"github.com/leobrines/curlman/exporter"
+	"github.com/leobrines/curlman/models"
 	"fmt"
 	"strings"
 )

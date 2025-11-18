@@ -2,7 +2,7 @@ package executor
 
 import (
 	"bytes"
-	"curlman/models"
+	"github.com/leobrines/curlman/models"
 	"fmt"
 	"io"
 	"net/http"

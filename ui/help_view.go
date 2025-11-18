@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"curlman/storage"
+	"github.com/leobrines/curlman/storage"
 	"fmt"
 	"strings"
 )

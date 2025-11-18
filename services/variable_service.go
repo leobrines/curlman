@@ -1,8 +1,8 @@
 package services
 
 import (
-	"curlman/config"
-	"curlman/models"
+	"github.com/leobrines/curlman/config"
+	"github.com/leobrines/curlman/models"
 	"fmt"
 	"strings"
 )

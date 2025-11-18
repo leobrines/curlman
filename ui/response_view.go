@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"curlman/executor"
+	"github.com/leobrines/curlman/executor"
 	"strings"
 )
 

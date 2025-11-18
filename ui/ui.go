@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"curlman/config"
-	"curlman/environment"
-	"curlman/executor"
-	"curlman/models"
-	"curlman/services"
+	"github.com/leobrines/curlman/config"
+	"github.com/leobrines/curlman/environment"
+	"github.com/leobrines/curlman/executor"
+	"github.com/leobrines/curlman/models"
+	"github.com/leobrines/curlman/services"
 	"fmt"
 	"sort"
 
