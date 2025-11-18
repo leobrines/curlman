@@ -231,14 +231,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "tab":
-			// Switch focus between variables list and actions menu
-			if m.currentView == viewVariables || m.currentView == viewGlobalVariables {
-				m.variableActionFocus = !m.variableActionFocus
-				if m.variableActionFocus {
-					m.variableActionCursor = 0
-				}
-				return m, nil
-			}
+			// Tab switching disabled for variables views - use Enter to access action menu
+			_ = m // No-op for variables views
 
 		case "enter":
 			return m.handleEnter()
@@ -468,12 +462,12 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		case 2: // Manage Variables
 			m.currentView = viewVariables
 			m.cursor = 0
-			m.variableActionFocus = true
+			m.variableActionFocus = false
 			m.variableActionCursor = 0
 		case 3: // Manage Global Variables
 			m.currentView = viewGlobalVariables
 			m.cursor = 0
-			m.variableActionFocus = true
+			m.variableActionFocus = false
 			m.variableActionCursor = 0
 		case 4: // Manage Environments
 			m.viewingCollectionEnv = false
@@ -588,8 +582,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 				}
 			}
 		} else {
-			// If focused on variables list, edit the selected variable
-			m.startEditingVariable()
+			// If focused on variables list, switch to action menu
+			m.variableActionFocus = true
+			m.variableActionCursor = 0
 		}
 	case viewHeaders:
 		m.startEditingHeader()
@@ -827,8 +822,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 				}
 			}
 		} else {
-			// If focused on variables list, edit the selected variable
-			m.startEditingGlobalVariable()
+			// If focused on variables list, switch to action menu
+			m.variableActionFocus = true
+			m.variableActionCursor = 0
 		}
 	}
 	return m, nil
