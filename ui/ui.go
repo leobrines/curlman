@@ -735,12 +735,12 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Handle different editing contexts
 		if m.currentView == viewMain {
 			if m.editingField == editName { // Import OpenAPI
-				collection, err := m.collectionService.ImportFromOpenAPI(value)
+				collection, savedPath, err := m.collectionService.ImportFromOpenAPI(value)
 				if err != nil {
 					m.message = fmt.Sprintf("Error importing: %s", err)
 				} else {
 					m.collection = collection
-					m.message = fmt.Sprintf("Imported %d requests from %s", len(collection.Requests), collection.Name)
+					m.message = fmt.Sprintf("Imported %d requests from %s (saved to %s)", len(collection.Requests), collection.Name, savedPath)
 				}
 			} else if m.editingField == editPath { // Save collection
 				fullPath, err := m.collectionService.SaveCollection(m.collection, value)
