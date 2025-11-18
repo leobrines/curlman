@@ -22,7 +22,7 @@ func (m Model) viewEnvironments() string {
 	}
 
 	if len(m.environments) == 0 {
-		s.WriteString(dimStyle.Render("No environments yet. Press 'enter' to create one."))
+		s.WriteString(dimStyle.Render("No environments yet."))
 	} else {
 		activeEnv := ""
 		if m.viewingCollectionEnv {
@@ -46,17 +46,30 @@ func (m Model) viewEnvironments() string {
 		}
 	}
 
-	// Option to create new environment
-	cursor := " "
-	if m.cursor == len(m.environments) {
-		cursor = ">"
-		s.WriteString("\n" + selectedStyle.Render(cursor+" [Create New Environment]"))
-	} else {
-		s.WriteString("\n" + cursor + " [Create New Environment]")
+	s.WriteString("\n")
+
+	// Action menu as a selectable list
+	s.WriteString("Actions:\n")
+	actions := []string{
+		"View Details",
+		"Activate Environment",
+		"Create New Environment",
+		"Delete Environment",
+		"Toggle Global/Collection",
 	}
 
-	s.WriteString("\n\n")
-	s.WriteString(dimStyle.Render("enter: select/create | d: delete | t: toggle global/collection | esc: back"))
+	for i, action := range actions {
+		cursor := "  "
+		if i == m.envListActionCursor {
+			cursor = "> "
+			s.WriteString(selectedStyle.Render(cursor + action) + "\n")
+		} else {
+			s.WriteString(cursor + action + "\n")
+		}
+	}
+
+	s.WriteString("\n")
+	s.WriteString(dimStyle.Render("↑/↓: navigate environments | ←/→: navigate actions | enter: select action | esc: back"))
 	s.WriteString("\n")
 
 	if m.editing {
