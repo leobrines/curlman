@@ -76,6 +76,7 @@ type Model struct {
 	viewingCollectionEnv bool // true = collection envs, false = global envs
 	mainMenuCursor       int  // cursor for main menu list
 	detailActionCursor   int  // cursor for detail view actions
+	envListActionCursor  int  // cursor for environment list actions menu
 }
 
 func NewModel() Model {
@@ -142,30 +143,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = ""
 			return m, nil
 
-		case "t":
-			if m.currentView == viewEnvironments {
-				// Toggle between global and collection environments
-				m.viewingCollectionEnv = !m.viewingCollectionEnv
-				m.cursor = 0
-				m.currentEnv = nil
-				m.currentCollectionEnv = nil
-
-				if m.viewingCollectionEnv {
-					// Switch to collection environments
-					m.environments = m.environmentService.ListCollectionEnvironments(m.collection)
-					m.message = "Viewing collection environments"
-				} else {
-					// Switch to global environments
-					envs, err := m.environmentService.ListGlobalEnvironments()
-					if err != nil {
-						m.message = fmt.Sprintf("Error loading environments: %s", err)
-						return m, nil
-					}
-					m.environments = envs
-					m.message = "Viewing global environments"
-				}
-				return m, nil
-			}
 
 		case "s":
 			if m.currentView == viewResponse && m.response != nil {
@@ -205,6 +182,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.detailActionCursor--
 				} else {
 					m.detailActionCursor = 2 // 3 actions (0-2)
+				}
+			case viewEnvironments:
+				// Navigate environment list
+				if m.cursor > 0 {
+					m.cursor--
+				} else if len(m.environments) > 0 {
+					m.cursor = len(m.environments) - 1 // Wrap around
 				}
 			case viewRequestList:
 				if m.cursor > 0 {
@@ -247,6 +231,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.detailActionCursor = 0
 				}
+			case viewEnvironments:
+				// Navigate environment list
+				if m.cursor < len(m.environments)-1 {
+					m.cursor++
+				} else {
+					m.cursor = 0 // Wrap around
+				}
 			case viewRequestList:
 				// Allow selecting up to "Create New" option
 				if m.cursor < len(m.collection.Requests) {
@@ -261,6 +252,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case "left", "h":
+			switch m.currentView {
+			case viewEnvironments:
+				// Navigate actions menu
+				if m.envListActionCursor > 0 {
+					m.envListActionCursor--
+				} else {
+					m.envListActionCursor = 4 // Wrap to last action (5 actions: 0-4)
+				}
+			}
+			return m, nil
+
+		case "right", "l":
+			switch m.currentView {
+			case viewEnvironments:
+				// Navigate actions menu
+				if m.envListActionCursor < 4 { // 5 actions (0-4)
+					m.envListActionCursor++
+				} else {
+					m.envListActionCursor = 0 // Wrap around
+				}
+			}
+			return m, nil
+
 		case "d":
 			if m.currentView == viewRequestList && m.cursor < len(m.collection.Requests) && len(m.collection.Requests) > 0 {
 				err := m.requestService.DeleteRequest(m.collection, m.cursor)
@@ -271,42 +286,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.cursor--
 					}
 					m.message = "Request deleted"
-				}
-				return m, nil
-			} else if m.currentView == viewEnvironments && m.cursor < len(m.environments) {
-				// Delete environment
-				envName := m.environments[m.cursor]
-
-				if m.viewingCollectionEnv {
-					// Delete collection environment
-					err := m.environmentService.DeleteCollectionEnvironment(m.collection, envName)
-					if err != nil {
-						m.message = fmt.Sprintf("Error: %s", err)
-					} else {
-						m.environments = m.environmentService.ListCollectionEnvironments(m.collection)
-						if m.cursor >= len(m.environments) && m.cursor > 0 {
-							m.cursor--
-						}
-						m.message = fmt.Sprintf("Collection environment '%s' deleted", envName)
-					}
-				} else {
-					// Delete global environment
-					err := m.environmentService.DeleteGlobalEnvironment(envName)
-					if err != nil {
-						m.message = fmt.Sprintf("Error deleting environment: %s", err)
-					} else {
-						// If deleted environment was active, deactivate it
-						if m.collection.ActiveEnvironment == envName {
-							m.environmentService.DeactivateGlobalEnvironment(m.collection)
-						}
-						// Reload environments list
-						envs, _ := m.environmentService.ListGlobalEnvironments()
-						m.environments = envs
-						if m.cursor >= len(m.environments) && m.cursor > 0 {
-							m.cursor--
-						}
-						m.message = fmt.Sprintf("Environment '%s' deleted", envName)
-					}
 				}
 				return m, nil
 			}
@@ -382,6 +361,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == viewEnvironmentDetail || m.currentView == viewEnvironmentVariables {
 				m.currentView = viewEnvironments
 				m.detailActionCursor = 0
+				m.envListActionCursor = 0
 				return m, nil
 			}
 			if m.currentView == viewGlobalVariableDetail {
@@ -426,6 +406,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.environments = envs
 			m.currentView = viewEnvironments
 			m.cursor = 0
+			m.envListActionCursor = 0
 		case 5: // Save Collection
 			m.message = "Enter filename to save:"
 			m.textInput.SetValue("collection.json")
@@ -509,7 +490,113 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	case viewQueryParams:
 		m.startEditingQueryParam()
 	case viewEnvironments:
-		m.handleEnvironmentSelect()
+		// Handle environment list actions menu
+		switch m.envListActionCursor {
+		case 0: // View Details
+			if len(m.environments) > 0 && m.cursor < len(m.environments) {
+				envName := m.environments[m.cursor]
+				if m.viewingCollectionEnv {
+					collEnv := m.collection.GetCollectionEnvironment(envName)
+					if collEnv == nil {
+						m.message = fmt.Sprintf("Error loading collection environment: %s", envName)
+						return m, nil
+					}
+					m.currentCollectionEnv = collEnv
+					m.currentEnv = nil
+				} else {
+					env, err := m.environmentService.GetGlobalEnvironment(envName)
+					if err != nil {
+						m.message = fmt.Sprintf("Error loading environment: %s", err)
+						return m, nil
+					}
+					m.currentEnv = env
+					m.currentCollectionEnv = nil
+				}
+				m.selectedEnvIdx = m.cursor
+				m.currentView = viewEnvironmentDetail
+				m.detailActionCursor = 0
+			} else {
+				m.message = "No environment selected"
+			}
+		case 1: // Activate Environment
+			if len(m.environments) > 0 && m.cursor < len(m.environments) {
+				envName := m.environments[m.cursor]
+				if m.viewingCollectionEnv {
+					err := m.environmentService.ActivateCollectionEnvironment(m.collection, envName)
+					if err != nil {
+						m.message = fmt.Sprintf("Error: %s", err)
+					} else {
+						m.message = fmt.Sprintf("Collection environment '%s' activated", envName)
+					}
+				} else {
+					err := m.environmentService.ActivateGlobalEnvironment(m.collection, envName)
+					if err != nil {
+						m.message = fmt.Sprintf("Error: %s", err)
+					} else {
+						m.message = fmt.Sprintf("Global environment '%s' activated", envName)
+					}
+				}
+			} else {
+				m.message = "No environment selected"
+			}
+		case 2: // Create New Environment
+			m.message = "Enter new environment name:"
+			m.textInput.SetValue("")
+			m.textInput.Focus()
+			m.editing = true
+			m.editingField = editName
+		case 3: // Delete Environment
+			if len(m.environments) > 0 && m.cursor < len(m.environments) {
+				envName := m.environments[m.cursor]
+				if m.viewingCollectionEnv {
+					err := m.environmentService.DeleteCollectionEnvironment(m.collection, envName)
+					if err != nil {
+						m.message = fmt.Sprintf("Error: %s", err)
+					} else {
+						m.environments = m.environmentService.ListCollectionEnvironments(m.collection)
+						if m.cursor >= len(m.environments) && m.cursor > 0 {
+							m.cursor--
+						}
+						m.message = fmt.Sprintf("Collection environment '%s' deleted", envName)
+					}
+				} else {
+					err := m.environmentService.DeleteGlobalEnvironment(envName)
+					if err != nil {
+						m.message = fmt.Sprintf("Error deleting environment: %s", err)
+					} else {
+						if m.collection.ActiveEnvironment == envName {
+							m.environmentService.DeactivateGlobalEnvironment(m.collection)
+						}
+						envs, _ := m.environmentService.ListGlobalEnvironments()
+						m.environments = envs
+						if m.cursor >= len(m.environments) && m.cursor > 0 {
+							m.cursor--
+						}
+						m.message = fmt.Sprintf("Environment '%s' deleted", envName)
+					}
+				}
+			} else {
+				m.message = "No environment selected"
+			}
+		case 4: // Toggle Global/Collection
+			m.viewingCollectionEnv = !m.viewingCollectionEnv
+			m.cursor = 0
+			m.currentEnv = nil
+			m.currentCollectionEnv = nil
+
+			if m.viewingCollectionEnv {
+				m.environments = m.environmentService.ListCollectionEnvironments(m.collection)
+				m.message = "Viewing collection environments"
+			} else {
+				envs, err := m.environmentService.ListGlobalEnvironments()
+				if err != nil {
+					m.message = fmt.Sprintf("Error loading environments: %s", err)
+					return m, nil
+				}
+				m.environments = envs
+				m.message = "Viewing global environments"
+			}
+		}
 	case viewEnvironmentDetail:
 		// Handle environment detail actions
 		if m.viewingCollectionEnv {
@@ -1079,43 +1166,6 @@ func getSortedVariableKeys(variables map[string]string) []string {
 	return keys
 }
 
-func (m *Model) handleEnvironmentSelect() {
-	if m.cursor < len(m.environments) {
-		// Select an existing environment
-		envName := m.environments[m.cursor]
-
-		if m.viewingCollectionEnv {
-			// Load collection environment
-			collEnv := m.collection.GetCollectionEnvironment(envName)
-			if collEnv == nil {
-				m.message = fmt.Sprintf("Error loading collection environment: %s", envName)
-				return
-			}
-			m.currentCollectionEnv = collEnv
-			m.currentEnv = nil
-		} else {
-			// Load global environment
-			env, err := m.environmentService.GetGlobalEnvironment(envName)
-			if err != nil {
-				m.message = fmt.Sprintf("Error loading environment: %s", err)
-				return
-			}
-			m.currentEnv = env
-			m.currentCollectionEnv = nil
-		}
-
-		m.selectedEnvIdx = m.cursor
-		m.currentView = viewEnvironmentDetail
-		m.cursor = 0
-	} else if m.cursor == len(m.environments) {
-		// Create new environment
-		m.message = "Enter new environment name:"
-		m.textInput.SetValue("")
-		m.textInput.Focus()
-		m.editing = true
-		m.editingField = editName
-	}
-}
 
 func (m *Model) startEditingEnvironmentVariable() {
 	if m.currentEnv == nil && m.currentCollectionEnv == nil {
