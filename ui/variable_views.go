@@ -12,15 +12,18 @@ func (m Model) viewVariables() string {
 	s.WriteString("\n\n")
 
 	if len(m.collection.Variables) == 0 {
-		s.WriteString(dimStyle.Render("No variables set. Press 'n' or 'enter' to add one."))
+		s.WriteString(dimStyle.Render("No variables set."))
+		s.WriteString("\n")
 	} else {
 		varKeys := getSortedVariableKeys(m.collection.Variables)
 		for i, key := range varKeys {
 			value := m.collection.Variables[key]
 			line := fmt.Sprintf("%s = %s", key, value)
 
-			if i == m.cursor {
+			if i == m.cursor && !m.variableActionFocus {
 				s.WriteString(selectedStyle.Render("> " + line))
+			} else if i == m.cursor {
+				s.WriteString("  " + line + " ←")
 			} else {
 				s.WriteString("  " + line)
 			}
@@ -28,8 +31,24 @@ func (m Model) viewVariables() string {
 		}
 	}
 
+	// Actions menu
+	s.WriteString("\nActions:\n")
+	actions := []string{
+		"Add New Variable",
+		"Edit Selected",
+		"Delete Selected",
+	}
+
+	for i, action := range actions {
+		if i == m.variableActionCursor && m.variableActionFocus {
+			s.WriteString(selectedStyle.Render("> " + action) + "\n")
+		} else {
+			s.WriteString("  " + action + "\n")
+		}
+	}
+
 	s.WriteString("\n")
-	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: edit | n: new | d: delete | esc: back"))
+	s.WriteString(dimStyle.Render("↑/↓: navigate | tab: switch section | enter: select | esc: back"))
 	s.WriteString("\n")
 
 	if m.editing {
@@ -53,12 +72,7 @@ func (m Model) viewGlobalVariables() string {
 	s.WriteString("\n\n")
 
 	if len(m.globalConfig.Variables) == 0 {
-		// Show only "Create New Variable" option when empty
-		if m.cursor == 0 {
-			s.WriteString(selectedStyle.Render("> Create New Variable"))
-		} else {
-			s.WriteString("  Create New Variable")
-		}
+		s.WriteString(dimStyle.Render("No global variables set."))
 		s.WriteString("\n")
 	} else {
 		varKeys := getSortedVariableKeys(m.globalConfig.Variables)
@@ -66,73 +80,35 @@ func (m Model) viewGlobalVariables() string {
 			value := m.globalConfig.Variables[key]
 			line := fmt.Sprintf("%s = %s", key, value)
 
-			if i == m.cursor {
+			if i == m.cursor && !m.variableActionFocus {
 				s.WriteString(selectedStyle.Render("> " + line))
+			} else if i == m.cursor {
+				s.WriteString("  " + line + " ←")
 			} else {
 				s.WriteString("  " + line)
 			}
 			s.WriteString("\n")
 		}
-		// Add "Create New Variable" option at the end
-		if m.cursor == len(varKeys) {
-			s.WriteString(selectedStyle.Render("> Create New Variable"))
-		} else {
-			s.WriteString("  Create New Variable")
-		}
-		s.WriteString("\n")
 	}
 
-	s.WriteString("\n")
-	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | esc: back"))
-	s.WriteString("\n")
-
-	if m.editing {
-		s.WriteString("\n" + m.message + "\n")
-		s.WriteString(m.textInput.View())
-	}
-
-	if m.message != "" && !m.editing {
-		s.WriteString("\n" + successStyle.Render(m.message))
-	}
-
-	return s.String()
-}
-
-func (m Model) viewGlobalVariableDetail() string {
-	var s strings.Builder
-
-	s.WriteString(titleStyle.Render("Global Variable Detail"))
-	s.WriteString("\n\n")
-
-	// Show the selected variable
-	if m.editingKey != "" {
-		value := m.globalConfig.Variables[m.editingKey]
-		s.WriteString(fmt.Sprintf("Name:  %s\n", m.editingKey))
-		s.WriteString(fmt.Sprintf("Value: %s\n", value))
-	}
-
-	s.WriteString("\n")
-
-	// Action menu as a selectable list
-	s.WriteString("Actions:\n")
+	// Actions menu
+	s.WriteString("\nActions:\n")
 	actions := []string{
-		"Edit Value",
-		"Rename Variable",
-		"Delete Variable",
+		"Add New Variable",
+		"Edit Selected",
+		"Delete Selected",
 	}
 
 	for i, action := range actions {
-		cursor := "  "
-		if i == m.detailActionCursor {
-			cursor = "> "
-			s.WriteString(selectedStyle.Render(cursor + action) + "\n")
+		if i == m.variableActionCursor && m.variableActionFocus {
+			s.WriteString(selectedStyle.Render("> " + action) + "\n")
 		} else {
-			s.WriteString(cursor + action + "\n")
+			s.WriteString("  " + action + "\n")
 		}
 	}
 
 	s.WriteString("\n")
-	s.WriteString(dimStyle.Render("↑/↓: navigate | enter: select | esc: back"))
+	s.WriteString(dimStyle.Render("↑/↓: navigate | tab: switch section | enter: select | esc: back"))
 	s.WriteString("\n")
 
 	if m.editing {

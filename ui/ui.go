@@ -30,8 +30,6 @@ const (
 	viewEnvironmentDetail
 	viewEnvironmentVariables
 	viewGlobalVariables
-	viewGlobalVariableDetail
-	viewDeleteGlobalVarConfirmation
 )
 
 type editField int
@@ -81,12 +79,13 @@ type Model struct {
 	message              string
 	width                int
 	height               int
-	selectedEnvIdx       int
-	viewingCollectionEnv bool // true = collection envs, false = global envs
-	mainMenuCursor       int  // cursor for main menu list
-	detailActionCursor   int  // cursor for detail view actions
-	envListActionCursor  int  // cursor for environment list actions menu
-	deleteConfirmKey     string // key of global variable pending deletion
+	selectedEnvIdx         int
+	viewingCollectionEnv   bool // true = collection envs, false = global envs
+	mainMenuCursor         int  // cursor for main menu list
+	detailActionCursor     int  // cursor for detail view actions
+	envListActionCursor    int  // cursor for environment list actions menu
+	variableActionFocus    bool // true when focused on actions menu in variables view
+	variableActionCursor   int  // cursor for variable actions menu
 }
 
 func NewModel() Model {
@@ -231,6 +230,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case "tab":
+			// Switch focus between variables list and actions menu
+			if m.currentView == viewVariables || m.currentView == viewGlobalVariables {
+				m.variableActionFocus = !m.variableActionFocus
+				if m.variableActionFocus {
+					m.variableActionCursor = 0
+				}
+				return m, nil
+			}
+
 		case "enter":
 			return m.handleEnter()
 
@@ -254,12 +263,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.detailActionCursor = maxActions - 1
 				}
-			case viewGlobalVariableDetail:
-				if m.detailActionCursor > 0 {
-					m.detailActionCursor--
-				} else {
-					m.detailActionCursor = 2 // 3 actions (0-2)
-				}
 			case viewEnvironments:
 				// Navigate environment list
 				if m.cursor > 0 {
@@ -274,6 +277,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case viewRequestEdit:
 				if m.selectedField > 0 {
 					m.selectedField--
+				}
+			case viewVariables:
+				if m.variableActionFocus {
+					if m.variableActionCursor > 0 {
+						m.variableActionCursor--
+					}
+				} else {
+					if m.cursor > 0 {
+						m.cursor--
+					}
+				}
+			case viewGlobalVariables:
+				if m.variableActionFocus {
+					if m.variableActionCursor > 0 {
+						m.variableActionCursor--
+					}
+				} else {
+					if m.cursor > 0 {
+						m.cursor--
+					}
 				}
 			default:
 				if m.cursor > 0 {
@@ -302,12 +325,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.detailActionCursor = 0
 				}
-			case viewGlobalVariableDetail:
-				if m.detailActionCursor < 2 { // 3 actions (0-2)
-					m.detailActionCursor++
-				} else {
-					m.detailActionCursor = 0
-				}
 			case viewEnvironments:
 				// Navigate environment list
 				if m.cursor < len(m.environments)-1 {
@@ -323,6 +340,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case viewRequestEdit:
 				if m.selectedField < 4 { // 5 fields (0-4)
 					m.selectedField++
+				}
+			case viewVariables:
+				if m.variableActionFocus {
+					if m.variableActionCursor < 2 { // 3 actions (0-2)
+						m.variableActionCursor++
+					}
+				} else {
+					varKeys := getSortedVariableKeys(m.collection.Variables)
+					if m.cursor < len(varKeys)-1 {
+						m.cursor++
+					}
+				}
+			case viewGlobalVariables:
+				if m.variableActionFocus {
+					if m.variableActionCursor < 2 { // 3 actions (0-2)
+						m.variableActionCursor++
+					}
+				} else {
+					varKeys := getSortedVariableKeys(m.globalConfig.Variables)
+					if m.cursor < len(varKeys)-1 {
+						m.cursor++
+					}
 				}
 			default:
 				m.cursor++
@@ -366,66 +405,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			if m.currentView == viewVariables && len(m.collection.Variables) > 0 {
-				varKeys := getSortedVariableKeys(m.collection.Variables)
-				if m.cursor >= 0 && m.cursor < len(varKeys) {
-					keyToDelete := varKeys[m.cursor]
-					err := m.variableService.DeleteCollectionVariable(m.collection, keyToDelete)
-					if err != nil {
-						m.message = fmt.Sprintf("Error: %s", err)
-					} else {
-						m.message = fmt.Sprintf("Variable '%s' deleted", keyToDelete)
-						if m.cursor >= len(m.collection.Variables) && m.cursor > 0 {
-							m.cursor--
-						}
-					}
-				}
-				return m, nil
-			}
-			if m.currentView == viewGlobalVariables && len(m.globalConfig.Variables) > 0 {
-				varKeys := getSortedVariableKeys(m.globalConfig.Variables)
-				if m.cursor >= 0 && m.cursor < len(varKeys) {
-					m.deleteConfirmKey = varKeys[m.cursor]
-					m.currentView = viewDeleteGlobalVarConfirmation
-					m.message = ""
-				}
-				return m, nil
-			}
-
-		case "y":
-			if m.currentView == viewDeleteGlobalVarConfirmation && m.deleteConfirmKey != "" {
-				keyToDelete := m.deleteConfirmKey
-				err := m.variableService.DeleteGlobalVariable(keyToDelete)
-				if err != nil {
-					m.message = fmt.Sprintf("Error: %s", err)
-				} else {
-					m.message = fmt.Sprintf("Global variable '%s' deleted", keyToDelete)
-					// Adjust cursor if needed
-					if m.cursor >= len(m.globalConfig.Variables) && m.cursor > 0 {
-						m.cursor--
-					}
-				}
-				m.deleteConfirmKey = ""
-				m.editingKey = ""
-				m.currentView = viewGlobalVariables
-				return m, nil
-			}
-
-		case "n":
-			if m.currentView == viewDeleteGlobalVarConfirmation {
-				m.deleteConfirmKey = ""
-				m.currentView = viewGlobalVariables
-				m.message = "Deletion cancelled"
-				return m, nil
-			}
-			if m.currentView == viewVariables {
-				m.startEditingNewVariable()
-				return m, nil
-			}
-			if m.currentView == viewGlobalVariables {
-				m.startEditingNewGlobalVariable()
-				return m, nil
-			}
 
 		case "esc", "backspace":
 			if m.currentView == viewRequestDetail {
@@ -433,9 +412,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detailActionCursor = 0
 				return m, nil
 			}
-			if m.currentView == viewRequestList || m.currentView == viewVariables || m.currentView == viewEnvironments || m.currentView == viewGlobalVariables {
+			if m.currentView == viewRequestList || m.currentView == viewEnvironments {
 				m.currentView = viewMain
 				m.cursor = 0
+				return m, nil
+			}
+			if m.currentView == viewVariables || m.currentView == viewGlobalVariables {
+				m.currentView = viewMain
+				m.cursor = 0
+				m.variableActionFocus = false
+				m.variableActionCursor = 0
 				return m, nil
 			}
 			if m.currentView == viewRequestEdit {
@@ -457,18 +443,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = viewEnvironments
 				m.detailActionCursor = 0
 				m.envListActionCursor = 0
-				return m, nil
-			}
-			if m.currentView == viewGlobalVariableDetail {
-				m.currentView = viewGlobalVariables
-				m.detailActionCursor = 0
-				m.editingKey = ""
-				return m, nil
-			}
-			if m.currentView == viewDeleteGlobalVarConfirmation {
-				m.deleteConfirmKey = ""
-				m.currentView = viewGlobalVariables
-				m.message = "Deletion cancelled"
 				return m, nil
 			}
 		}
@@ -494,9 +468,13 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		case 2: // Manage Variables
 			m.currentView = viewVariables
 			m.cursor = 0
+			m.variableActionFocus = true
+			m.variableActionCursor = 0
 		case 3: // Manage Global Variables
 			m.currentView = viewGlobalVariables
 			m.cursor = 0
+			m.variableActionFocus = true
+			m.variableActionCursor = 0
 		case 4: // Manage Environments
 			m.viewingCollectionEnv = false
 			envs, err := m.environmentService.ListGlobalEnvironments()
@@ -579,7 +557,40 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	case viewRequestEdit:
 		m.startEditing()
 	case viewVariables:
-		m.startEditingVariable()
+		if m.variableActionFocus {
+			// Handle action menu selection
+			switch m.variableActionCursor {
+			case 0: // Add New Variable
+				m.startEditingNewVariable()
+			case 1: // Edit Selected
+				if len(m.collection.Variables) > 0 {
+					m.startEditingVariable()
+				} else {
+					m.message = "No variables to edit"
+				}
+			case 2: // Delete Selected
+				if len(m.collection.Variables) > 0 {
+					varKeys := getSortedVariableKeys(m.collection.Variables)
+					if m.cursor >= 0 && m.cursor < len(varKeys) {
+						keyToDelete := varKeys[m.cursor]
+						err := m.variableService.DeleteCollectionVariable(m.collection, keyToDelete)
+						if err != nil {
+							m.message = fmt.Sprintf("Error: %s", err)
+						} else {
+							m.message = fmt.Sprintf("Variable '%s' deleted", keyToDelete)
+							if m.cursor >= len(m.collection.Variables) && m.cursor > 0 {
+								m.cursor--
+							}
+						}
+					}
+				} else {
+					m.message = "No variables to delete"
+				}
+			}
+		} else {
+			// If focused on variables list, edit the selected variable
+			m.startEditingVariable()
+		}
 	case viewHeaders:
 		m.startEditingHeader()
 	case viewQueryParams:
@@ -785,42 +796,39 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	case viewEnvironmentVariables:
 		m.startEditingEnvironmentVariable()
 	case viewGlobalVariables:
-		varKeys := getSortedVariableKeys(m.globalConfig.Variables)
-		if m.cursor < len(varKeys) {
-			// Select existing variable - navigate to detail view
-			m.editingKey = varKeys[m.cursor]
-			m.currentView = viewGlobalVariableDetail
-			m.detailActionCursor = 0
+		if m.variableActionFocus {
+			// Handle action menu selection
+			switch m.variableActionCursor {
+			case 0: // Add New Variable
+				m.startEditingNewGlobalVariable()
+			case 1: // Edit Selected
+				if len(m.globalConfig.Variables) > 0 {
+					m.startEditingGlobalVariable()
+				} else {
+					m.message = "No global variables to edit"
+				}
+			case 2: // Delete Selected
+				if len(m.globalConfig.Variables) > 0 {
+					varKeys := getSortedVariableKeys(m.globalConfig.Variables)
+					if m.cursor >= 0 && m.cursor < len(varKeys) {
+						keyToDelete := varKeys[m.cursor]
+						err := m.variableService.DeleteGlobalVariable(keyToDelete)
+						if err != nil {
+							m.message = fmt.Sprintf("Error: %s", err)
+						} else {
+							m.message = fmt.Sprintf("Global variable '%s' deleted", keyToDelete)
+							if m.cursor >= len(m.globalConfig.Variables) && m.cursor > 0 {
+								m.cursor--
+							}
+						}
+					}
+				} else {
+					m.message = "No global variables to delete"
+				}
+			}
 		} else {
-			// Create new variable
-			m.startEditingNewGlobalVariable()
-		}
-	case viewGlobalVariableDetail:
-		// Handle global variable detail actions
-		switch m.detailActionCursor {
-		case 0: // Edit Value
-			if m.editingKey != "" {
-				value := m.globalConfig.Variables[m.editingKey]
-				m.editing = true
-				m.textInput.Focus()
-				m.editingField = editHeader
-				m.textInput.SetValue(value)
-				m.message = fmt.Sprintf("Editing value for '%s':", m.editingKey)
-			}
-		case 1: // Rename Variable
-			if m.editingKey != "" {
-				m.editing = true
-				m.textInput.Focus()
-				m.editingField = editName
-				m.textInput.SetValue(m.editingKey)
-				m.message = "Enter new variable name:"
-			}
-		case 2: // Delete Variable
-			if m.editingKey != "" {
-				m.deleteConfirmKey = m.editingKey
-				m.currentView = viewDeleteGlobalVarConfirmation
-				m.message = ""
-			}
+			// If focused on variables list, edit the selected variable
+			m.startEditingGlobalVariable()
 		}
 	}
 	return m, nil
@@ -1081,37 +1089,6 @@ func (m Model) handleEditingInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.editingKey = ""
 			}
-		} else if m.currentView == viewGlobalVariableDetail {
-			if m.editingField == editHeader {
-				// Edit Value action
-				err := m.variableService.SetGlobalVariable(m.editingKey, value)
-				if err != nil {
-					m.message = fmt.Sprintf("Error: %s", err)
-				} else {
-					m.message = fmt.Sprintf("Variable '%s' updated", m.editingKey)
-				}
-			} else if m.editingField == editName {
-				// Rename Variable action
-				oldKey := m.editingKey
-				newKey := value
-				if oldKey != newKey {
-					// Get the old value
-					oldValue := m.globalConfig.Variables[oldKey]
-					// Delete old key and set new key
-					err := m.variableService.DeleteGlobalVariable(oldKey)
-					if err != nil {
-						m.message = fmt.Sprintf("Error: %s", err)
-					} else {
-						err = m.variableService.SetGlobalVariable(newKey, oldValue)
-						if err != nil {
-							m.message = fmt.Sprintf("Error: %s", err)
-						} else {
-							m.editingKey = newKey
-							m.message = fmt.Sprintf("Variable renamed to '%s'", newKey)
-						}
-					}
-				}
-			}
 		} else if m.currentView == viewEnvironmentDetail && m.editingField == editName {
 			// Rename environment
 			if m.viewingCollectionEnv && m.currentCollectionEnv != nil {
@@ -1189,10 +1166,6 @@ func (m Model) View() string {
 		return m.viewEnvironmentVariables()
 	case viewGlobalVariables:
 		return m.viewGlobalVariables()
-	case viewGlobalVariableDetail:
-		return m.viewGlobalVariableDetail()
-	case viewDeleteGlobalVarConfirmation:
-		return m.viewDeleteGlobalVarConfirmation()
 	}
 
 	return ""
@@ -1266,27 +1239,4 @@ func (m *Model) startEditingNewGlobalVariable() {
 	m.textInput.SetValue("")
 	m.editingKey = ""
 	m.message = "Enter global variable name:"
-}
-
-func (m Model) viewDeleteGlobalVarConfirmation() string {
-	s := titleStyle.Render("Delete Global Variable")
-	s += "\n\n"
-
-	warningStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("196")).
-		Bold(true)
-
-	s += warningStyle.Render("Are you sure you want to delete this variable?")
-	s += "\n\n"
-
-	// Show the variable being deleted
-	s += fmt.Sprintf("  Variable: %s\n", selectedStyle.Render(m.deleteConfirmKey))
-	if value, ok := m.globalConfig.Variables[m.deleteConfirmKey]; ok {
-		s += fmt.Sprintf("  Value: %s\n", dimStyle.Render(value))
-	}
-
-	s += "\n"
-	s += dimStyle.Render("Press 'y' to confirm, 'n' or 'esc' to cancel")
-
-	return s
 }
